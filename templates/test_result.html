@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Результат теста</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #f9f9f9;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .result-summary {
+            background: #eaf2f8;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .score {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 10px 0;
+            color: #2c3e50;
+        }
+        .score-text {
+            font-size: 1.2em;
+            margin-bottom: 15px;
+        }
+        .test-info {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .test-info-item {
+            margin: 5px 0;
+        }
+        .task {
+            background: white;
+            margin: 15px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .task-id {
+            font-weight: bold;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .task-title {
+            font-size: 1.3em;
+            color: #2c3e50;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .task-description {
+            margin: 10px 0;
+            color: #34495e;
+        }
+        .task-image {
+            max-width: 100%;
+            height: auto;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .answer-section {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .user-answer {
+            background-color: #ffebee;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 5px;
+        }
+        .correct-answer {
+            background-color: #e8f5e9;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 5px;
+        }
+        .correct {
+            border-left: 4px solid #4caf50;
+        }
+        .incorrect {
+            border-left: 4px solid #f44336;
+        }
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            text-decoration: none;
+            margin-top: 20px;
+            cursor: pointer;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Результат теста #{{ test[0] }}</h1>
+        <a href="/tests" class="btn">← Назад к тестам</a>
+    </div>
+    
+    <div class="result-summary">
+        <div class="score-text">Ваш результат:</div>
+        <div class="score">{{ attempt[3] }}%</div>
+        <div class="score-text">
+            Правильных ответов: {{ attempt[3] * tasks|length // 100 }} из {{ tasks|length }}
+        </div>
+    </div>
+    
+    <div class="test-info">
+        <div class="test-info-item">Тест: <strong>#{{ test[0] }}</strong></div>
+        <div class="test-info-item">Дата прохождения: <strong>{{ attempt[5][:16] }}</strong></div>
+        <div class="test-info-item">Время на тест: <strong>{{ test[1] }} минут</strong></div>
+    </div>
+    
+    <h2>Детализация ответов:</h2>
+    
+    {% for task in tasks %}
+    <div class="task {% if user_answers[task[0]]|lower == (task[3] or '')|lower %}correct{% else %}incorrect{% endif %}">
+        <div class="task-id">ID: {{ task[0] }}</div>
+        <div class="task-title">{{ task[1] }}</div>
+        
+        {% if task[0] %}
+            {% set image_path = 'images/' ~ task[0] ~ '.jpg' %}
+            {% if image_path %}
+            <img src="{{ url_for('get_image', filename=task[0]~'.jpg') }}" 
+                 alt="Изображение к задаче {{ task[0] }}" 
+                 class="task-image"
+                 onerror="this.style.display='none'">
+            {% endif %}
+        {% endif %}
+        
+        <div class="task-description">{{ task[2] }}</div>
+        
+        <div class="answer-section">
+            <div><strong>Ваш ответ:</strong></div>
+            <div class="user-answer">{{ user_answers[task[0]] }}</div>
+            
+            <div><strong>Правильный ответ:</strong></div>
+            <div class="correct-answer">{{ task[3] }}</div>
+        </div>
+        
+        <div class="task-difficulty" style="background-color: {{ get_difficulty_color(task[4]) }}">
+            Сложность: {{ task[4] }}/10
+        </div>
+    </div>
+    {% endfor %}
+    
+    <div style="text-align: center; margin-top: 30px;">
+        <a href="/tests" class="btn">Вернуться к списку тестов</a>
+    </div>
+</body>
+</html>

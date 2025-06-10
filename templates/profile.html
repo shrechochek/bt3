@@ -1,0 +1,172 @@
+[file name]: profile.html
+[file content begin]
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Личный кабинет</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .user-info {
+            background-color: #eaf2f8;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        .user-info h2 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        .history {
+            margin-top: 30px;
+        }
+        .history h2 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .result-cell {
+            font-weight: bold;
+        }
+        .result-good {
+            color: #27ae60;
+        }
+        .result-medium {
+            color: #f39c12;
+        }
+        .result-bad {
+            color: #e74c3c;
+        }
+        .no-history {
+            text-align: center;
+            padding: 30px;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .action-btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            text-decoration: none;
+            cursor: pointer;
+            text-align: center;
+        }
+        .action-btn:hover {
+            background-color: #2980b9;
+        }
+        .btn-secondary {
+            background-color: #95a5a6;
+        }
+        .btn-secondary:hover {
+            background-color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Личный кабинет</h1>
+        
+        <div class="user-info">
+            <h2>Информация о пользователе</h2>
+            <p><strong>Имя:</strong> {{ user.name }}</p>
+            <p><strong>Фамилия:</strong> {{ user.surname }}</p>
+            <p><strong>Логин:</strong> {{ user.username }}</p>
+            
+            <div class="action-buttons">
+                <a href="/" class="action-btn">На главную</a>
+                <a href="/tests" class="action-btn">Тесты</a>
+                <a href="{{ url_for('logout') }}" class="action-btn btn-secondary">Выйти</a>
+            </div>
+        </div>
+        
+        <div class="history">
+            <h2>История прохождения тестов</h2>
+            
+            {% if attempts %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Дата и время</th>
+                        <th>ID теста</th>
+                        <th>Результат</th>
+                        <th>Длительность</th>
+                        <th>Детали</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for attempt in attempts %}
+                    <tr>
+                        <td>{{ attempt[3][:16] }}</td>
+                        <td>{{ attempt[1] }}</td>
+                        <td class="result-cell 
+                            {% if attempt[2] >= 80 %}result-good
+                            {% elif attempt[2] >= 50 %}result-medium
+                            {% else %}result-bad
+                            {% endif %}">
+                            {{ attempt[2] }}%
+                        </td>
+                        <td>{{ attempt[4] }} мин</td>
+                        <td>
+                            <a href="{{ url_for('test_result', attempt_id=attempt[0]) }}">
+                                Посмотреть
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="no-history">
+                Вы еще не прошли ни одного теста.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
+[file content end]

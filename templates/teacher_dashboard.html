@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Панель учителя</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #3498db;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        .students-list {
+            list-style-type: none;
+            padding: 0;
+        }
+        .student-item {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .student-info {
+            font-size: 16px;
+        }
+        .student-name {
+            font-weight: bold;
+        }
+        .student-username {
+            color: #7f8c8d;
+        }
+        .student-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .btn {
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            border: none;
+            color: white;
+        }
+        .btn-view {
+            background-color: #3498db;
+        }
+        .btn-view:hover {
+            background-color: #2980b9;
+        }
+        .btn-delete {
+            background-color: #e74c3c;
+        }
+        .btn-delete:hover {
+            background-color: #c0392b;
+        }
+        .no-students {
+            text-align: center;
+            padding: 30px;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        .add-student-form {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #eaf2f8;
+            border-radius: 8px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-control {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        .add-btn {
+            background-color: #2ecc71;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .add-btn:hover {
+            background-color: #27ae60;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← На главную</a>
+        <h1>Панель учителя</h1>
+        
+        <h2>Мои ученики</h2>
+        
+        {% if students %}
+        <ul class="students-list">
+            {% for student in students %}
+                <li class="student-item">
+                    <div class="student-info">
+                        <span class="student-name">{{ student.name }} {{ student.surname }}</span>
+                        <span class="student-username">({{ student.username }})</span>
+                    </div>
+                    <div class="student-actions">
+                        <a href="{{ url_for('view_student_results', student_id=student.id) }}" class="btn btn-view">
+                            Результаты
+                        </a>
+                        <form method="POST" action="{{ url_for('remove_student', student_id=student.id) }}" style="display: inline;">
+                            <button type="submit" class="btn btn-delete">Удалить</button>
+                        </form>
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="no-students">
+            У вас пока нет учеников. Добавьте их с помощью формы ниже.
+        </div>
+        {% endif %}
+        
+        <div class="add-student-form">
+            <h3>Добавить ученика</h3>
+            <form method="POST" action="{{ url_for('add_student') }}">
+                <div class="form-group">
+                    <label for="username">Логин ученика:</label>
+                    <input type="text" id="username" name="username" class="form-control" required>
+                </div>
+                <button type="submit" class="add-btn">Добавить</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Найденные задачи</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #f9f9f9;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .back-link {
+            color: #3498db;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        .search-summary {
+            background: #eaf2f8;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+        }
+        .search-summary strong {
+            color: #2c3e50;
+        }
+        .task {
+            background: white;
+            margin: 15px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .task-id {
+            font-weight: bold;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .task-title {
+            font-size: 1.3em;
+            color: #2c3e50;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .task-description {
+            margin: 10px 0;
+            color: #34495e;
+        }
+        .task-image {
+            max-width: 100%;
+            height: auto;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .task-answer {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #ecf0f1;
+            border-radius: 5px;
+            font-family: monospace;
+            display: none;
+        }
+        .show-answer-btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background-color 0.3s;
+        }
+        .show-answer-btn:hover {
+            background-color: #2980b9;
+        }
+        .task-difficulty {
+            display: inline-block;
+            padding: 5px 12px;
+            color: white;
+            border-radius: 15px;
+            font-size: 0.9em;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .task-tags {
+            margin-top: 10px;
+            font-style: italic;
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+        .task-source {
+            margin-top: 10px;
+            font-size: 0.8em;
+            color: #95a5a6;
+        }
+        .no-tasks {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Найденные задачи</h1>
+        <a href="/" class="back-link">← Новый поиск</a>
+    </div>
+    
+    {% if search_params %}
+    <div class="search-summary">
+        <strong>Параметры поиска:</strong><br>
+        {% if search_params.title %}Название содержит: <strong>{{ search_params.title }}</strong><br>{% endif %}
+        {% if search_params.description %}Описание содержит: <strong>{{ search_params.description }}</strong><br>{% endif %}
+        {% if search_params.tag %}Тег: <strong>{{ search_params.tag }}</strong><br>{% endif %}
+        {% if search_params.source %}Источник: <strong>{{ search_params.source }}</strong><br>{% endif %}  <!-- Добавили отображение источника -->
+        {% if search_params.min_difficulty or search_params.max_difficulty %}
+            Сложность:
+            {% if search_params.min_difficulty %}<strong>от {{ search_params.min_difficulty }}</strong>{% endif %}
+            {% if search_params.max_difficulty %}<strong>до {{ search_params.max_difficulty }}</strong>{% endif %}
+        {% endif %}
+    </div>
+    {% endif %}
+    
+    {% if tasks %}
+        {% for task in tasks %}
+        <div class="task">
+            <div class="task-id">ID: {{ task[0] }}</div>
+            <div class="task-title">{{ task[1] }}</div>
+            
+            <!-- Проверяем наличие изображения -->
+            {% if task[0] %}
+                {% set image_path = 'images/' ~ task[0] ~ '.jpg' %}
+                {% if image_path %}
+                <img src="{{ url_for('get_image', filename=task[0]~'.jpg') }}" 
+                     alt="Изображение к задаче {{ task[0] }}" 
+                     class="task-image"
+                     onerror="this.style.display='none'">
+                {% endif %}
+            {% endif %}
+            
+            <div class="task-description">{{ task[2] }}</div>
+            
+            {% if task[3] %}
+            <button class="show-answer-btn" onclick="toggleAnswer('answer-{{ task[0] }}')">
+                Показать ответ
+            </button>
+            <div id="answer-{{ task[0] }}" class="task-answer">
+                Ответ: {{ task[3] }}
+            </div>
+            {% endif %}
+            
+            <div class="task-difficulty" style="background-color: {{ get_difficulty_color(task[4]) }}">
+                Сложность: {{ task[4] }}/10
+            </div>
+            
+            {% if task[5] %}
+            <div class="task-tags">Теги: {{ task[5] }}</div>
+            {% endif %}
+            
+            {% if task[6] %}
+            <div class="task-source">Источник: {{ task[6] }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="no-tasks">
+            По вашему запросу задач не найдено. Попробуйте изменить параметры поиска.
+        </div>
+    {% endif %}
+
+    <script>
+        function toggleAnswer(answerId) {
+            const answerElement = document.getElementById(answerId);
+            const button = answerElement.previousElementSibling;
+            
+            if (answerElement.style.display === 'block') {
+                answerElement.style.display = 'none';
+                button.textContent = 'Показать ответ';
+            } else {
+                answerElement.style.display = 'block';
+                button.textContent = 'Скрыть ответ';
+            }
+        }
+    </script>
+</body>
+</html>

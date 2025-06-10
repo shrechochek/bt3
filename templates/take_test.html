@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Прохождение теста</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #f9f9f9;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .test-info {
+            background: #eaf2f8;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .test-info-item {
+            margin: 5px 0;
+        }
+        .task {
+            background: white;
+            margin: 15px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .task-id {
+            font-weight: bold;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .task-title {
+            font-size: 1.3em;
+            color: #2c3e50;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .task-description {
+            margin: 10px 0;
+            color: #34495e;
+        }
+        .task-image {
+            max-width: 100%;
+            height: auto;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .answer-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        .task-difficulty {
+            display: inline-block;
+            padding: 5px 12px;
+            color: white;
+            border-radius: 15px;
+            font-size: 0.9em;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .submit-btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+            width: 100%;
+        }
+        .submit-btn:hover {
+            background-color: #2980b9;
+        }
+        .attempts-info {
+            background-color: #ffebee;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .timer {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: #2c3e50;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-size: 1.2em;
+            font-weight: bold;
+            z-index: 1000;
+        }
+        .timer.warning {
+            background-color: #e74c3c;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Тест #{{ test[0] }}</h1>
+        <a href="/tests" class="back-link">← Назад к тестам</a>
+    </div>
+    
+    <div class="test-info">
+        <div class="test-info-item">Время на тест: <strong>{{ test[1] }} минут</strong></div>
+        <div class="test-info-item">Осталось попыток: <strong>{{ attempts_left }}</strong></div>
+    </div>
+    
+    <!-- {% if attempts_left < test[2] %}
+    <div class="attempts-info">
+        У вас осталось {{ attempts_left }} попытка(ок) из {{ test[2] }}
+    </div>
+    {% endif %} -->
+
+    <div id="testTimer" class="timer">
+        Осталось: <span id="timeDisplay">00:00</span>
+    </div>
+    
+    <form method="POST" action="{{ url_for('take_test', test_id=test[0]) }}">
+        {% for task in tasks %}
+        <div class="task">
+            <div class="task-id">ID: {{ task[0] }}</div>
+            <div class="task-title">{{ task[1] }}</div>
+            
+            {% if task[0] %}
+                {% set image_path = 'images/' ~ task[0] ~ '.jpg' %}
+                {% if image_path %}
+                <img src="{{ url_for('get_image', filename=task[0]~'.jpg') }}" 
+                     alt="Изображение к задаче {{ task[0] }}" 
+                     class="task-image"
+                     onerror="this.style.display='none'">
+                {% endif %}
+            {% endif %}
+            
+            <div class="task-description">{{ task[2] }}</div>
+            
+            <input type="text" 
+                   name="answer_{{ task[0] }}" 
+                   class="answer-input" 
+                   placeholder="Введите ваш ответ">
+            
+            <div class="task-difficulty" style="background-color: {{ get_difficulty_color(task[4]) }}">
+                Сложность: {{ task[4] }}/10
+            </div>
+        </div>
+        {% endfor %}
+        
+        <button id = "sbutton" type="submit" class="submit-btn">Завершить тест</button>
+    </form>
+    <script>
+        // Устанавливаем время окончания теста
+        const testDuration = {{ test[1] }} * 60; // в секундах
+        let timeLeft = testDuration;
+        const timerElement = document.getElementById('testTimer');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const testForm = document.getElementById('testForm');
+
+        const submitButton = document.getElementById('sbutton');
+        
+        function updateTimer() {
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            
+            timeDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            
+            // Меняем цвет при малом остатке времени
+            if (timeLeft <= 60) { // 1 минута
+                timerElement.classList.add('warning');
+            }
+            
+            // if (timeLeft <= 0) {
+            if (timeLeft <= 50) {
+                // Автоматически отправляем форму
+                // if (testForm && !testForm.dataset.submitted) {
+                //     testForm.dataset.submitted = true;
+                //     testForm.submit();
+                // }
+                submitButton.click();
+                return;
+            }
+            
+            // h = Math.floor(Math.random() * 4);
+            // if(h == 3) { 
+            //     timeLeft--;
+            // }
+            timeLeft--;
+            setTimeout(updateTimer, 1000);
+        }
+        
+        // Запускаем таймер
+        updateTimer();
+        
+        // Дополнительная проверка на сервере (на случай, если пользователь изменит время на клиенте)
+        async function checkServerTime() {
+            try {
+                const response = await fetch(`/check-time?test_id={{ test[0] }}`);
+                const data = await response.json();
+                if (data.time_left <= 0 && testForm && !testForm.dataset.submitted) {
+                    testForm.dataset.submitted = true;
+                    testForm.submit();
+                }
+            } catch (error) {
+                console.error('Ошибка проверки времени:', error);
+            }
+        }
+        
+        // Проверяем каждые 30 секунд
+        setInterval(checkServerTime, 30000);
+    </script>
+</body>
+</html>

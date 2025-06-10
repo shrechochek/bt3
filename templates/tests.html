@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Список тестов</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #f9f9f9;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .back-link {
+            color: #3498db;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        .test {
+            background: white;
+            margin: 15px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .test-id {
+            font-weight: bold;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .test-title {
+            font-size: 1.2em;
+            color: #2c3e50;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .test-info {
+            margin: 5px 0;
+            color: #34495e;
+        }
+        .test-tasks {
+            margin-top: 10px;
+            font-style: italic;
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+        .no-tests {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+        .btn {
+            display: inline-block;
+            padding: 8px 15px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            text-decoration: none;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        .test-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 10px;
+        }
+        .btn-pdf {
+            background-color: #e74c3c;
+            color: white;
+        }
+        .btn-pdf:hover {
+            background-color: #c0392b;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Список тестов</h1>
+        <a href="/" class="back-link">← На главную</a>
+    </div>
+    
+    {% if tests %}
+        {% for test in tests %}
+        <div class="test">
+            <div class="test-id">ID теста: {{ test[0] }}</div>
+            <div class="test-title">Тест #{{ test[0] }}</div>
+            <div class="test-info">Время: {{ test[1] }} минут</div>
+            <div class="test-info">Попыток: {{ test[2] }}</div>
+            <!-- {% if test[4] %}
+                <div class="test-info">Код доступа: {{ test[4] }}</div>
+            {% endif %} -->
+            <!-- <div class="test-tasks">ID заданий: {{ test[3] }}</div> -->
+            
+            <div class="test-actions">
+                <a href="{{ url_for('start_test', test_id=test[0]) }}" class="btn">Начать тест</a>
+                {% if is_teacher %}
+                    <button onclick="printTest({{ test[0] }})" class="btn btn-pdf">
+                        <i class="fas fa-file-pdf"></i> Печать теста
+                    </button>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="no-tests">
+            Тесты не найдены. Вы можете создать новый тест.
+        </div>
+    {% endif %}
+</body>
+</html>

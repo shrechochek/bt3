@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Создать тест</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 600px;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .form-control {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 5px;
+            background-color: #3498db;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            margin-bottom: 15px;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        .alert {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .alert-error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .alert-success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .info-text {
+            font-size: 0.9em;
+            color: #7f8c8d;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Создать новый тест</h1>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <form method="POST" action="{{ url_for('create_test_page') }}">
+            <div class="form-group">
+                <label for="time">Время на тест (в минутах):</label>
+                <input type="number" id="time" name="time" class="form-control" required min="1">
+            </div>
+            
+            <div class="form-group">
+                <label for="attempts">Количество попыток:</label>
+                <input type="number" id="attempts" name="attempts" class="form-control" required min="1">
+            </div>
+            
+            <div class="form-group">
+                <label for="tasks_id">ID заданий (через запятую):</label>
+                <input type="text" id="tasks_id" name="tasks_id" class="form-control" required>
+                <p class="info-text">Пример: 1,3,5,7</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="access_code">Код доступа (необязательно):</label>
+                <input type="text" id="access_code" name="access_code" class="form-control">
+                <p class="info-text">Оставьте пустым, если тест публичный</p>
+            </div>
+            
+            <button type="submit" class="btn">Создать тест</button>
+        </form>
+    </div>
+</body>
+</html>
