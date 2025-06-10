@@ -117,6 +117,14 @@
                     </button>
                 {% endif %}
             </div>
+
+            {% if user.username == 'admin' %}
+            <form method="POST" action="{{ url_for('admin_delete_test', test_id=test[0]) }}" style="display: inline;">
+                <button type="submit" class="btn btn-danger" onclick="return confirm('Вы уверены, что хотите удалить этот тест?')">
+                     Удалить
+                </button>
+            </form>
+            {% endif %}
         </div>
         {% endfor %}
     {% else %}

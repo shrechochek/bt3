@@ -405,6 +405,132 @@ def get_student_attempts(student_id):
     conn.close()
     return attempts
 
+# Добавим в app.py новые функции для удаления
+
+def delete_user(user_id):
+    """Удаляет пользователя из системы"""
+    conn = sqlite3.connect("datbase.db")
+    cursor = conn.cursor()
+    try:
+        # Удаляем связи учитель-ученик
+        cursor.execute("DELETE FROM teacher_students WHERE teacher_id = ? OR student_id = ?", 
+                      (user_id, user_id))
+        # Удаляем из учителей
+        cursor.execute("DELETE FROM teachers WHERE user_id = ?", (user_id,))
+        # Удаляем попытки тестов
+        cursor.execute("DELETE FROM attempts WHERE user_id = ?", (user_id,))
+        # Удаляем самого пользователя
+        cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        conn.rollback()
+        print(f"Error deleting user: {e}")
+        return False
+    finally:
+        conn.close()
+
+def delete_task(task_id):
+    """Удаляет задание из системы"""
+    conn = sqlite3.connect("datbase.db")
+    cursor = conn.cursor()
+    try:
+        # Удаляем изображение задания, если оно есть
+        image_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{task_id}.jpg")
+        if os.path.exists(image_path):
+            os.remove(image_path)
+        
+        # Удаляем задание
+        cursor.execute("DELETE FROM tasks6 WHERE id = ?", (task_id,))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        conn.rollback()
+        print(f"Error deleting task: {e}")
+        return False
+    finally:
+        conn.close()
+
+def delete_test(test_id):
+    """Удаляет тест из системы"""
+    conn = sqlite3.connect("datbase.db")
+    cursor = conn.cursor()
+    try:
+        # Удаляем попытки прохождения теста
+        cursor.execute("DELETE FROM attempts WHERE test_id = ?", (test_id,))
+        # Удаляем сам тест
+        cursor.execute("DELETE FROM tests WHERE id = ?", (test_id,))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        conn.rollback()
+        print(f"Error deleting test: {e}")
+        return False
+    finally:
+        conn.close()
+
+# Добавим новые маршруты для удаления
+@app.route('/admin/delete-user/<int:user_id>', methods=['POST'])
+def admin_delete_user(user_id):
+    if not is_admin():
+        flash('Доступ запрещен', 'error')
+        return redirect(url_for('home'))
+    
+    if delete_user(user_id):
+        flash('Пользователь успешно удален', 'success')
+    else:
+        flash('Ошибка при удалении пользователя', 'error')
+    
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/delete-task/<int:task_id>', methods=['POST'])
+def admin_delete_task(task_id):
+    if not is_admin():
+        flash('Доступ запрещен', 'error')
+        return redirect(url_for('home'))
+    
+    if delete_task(task_id):
+        flash('Задание успешно удалено', 'success')
+    else:
+        flash('Ошибка при удалении задания', 'error')
+    
+    return redirect(url_for('search'))
+
+@app.route('/admin/tasks')
+def admin_tasks():
+    if not is_admin():
+        flash('Доступ запрещен', 'error')
+        return redirect(url_for('home'))
+    
+    conn = sqlite3.connect("datbase.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title, difficulty, tags FROM tasks6")
+    tasks = [{
+        'id': row[0],
+        'title': row[1],
+        'difficulty': row[2],
+        'tags': row[3]
+    } for row in cursor.fetchall()]
+    conn.close()
+    
+    return render_template('admin_tasks.html',
+                         tasks=tasks,
+                         get_difficulty_color=get_difficulty_color,
+                         user=session.get('user_info'))
+
+@app.route('/admin/delete-test/<int:test_id>', methods=['POST'])
+def admin_delete_test(test_id):
+    if not is_admin():
+        flash('Доступ запрещен', 'error')
+        return redirect(url_for('home'))
+    
+    if delete_test(test_id):
+        flash('Тест успешно удален', 'success')
+    else:
+        flash('Ошибка при удалении теста', 'error')
+    
+    return redirect(url_for('view_tests'))
+
 def get_student_stats(student_id):
     conn = sqlite3.connect("datbase.db")
     cursor = conn.cursor()

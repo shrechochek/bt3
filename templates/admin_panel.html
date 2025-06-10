@@ -124,14 +124,27 @@
                             Просмотр
                         </a>
                         <a href="{{ url_for('admin_toggle_teacher', user_id=user.id) }}" 
-                           class="btn {% if user.is_teacher %}btn-not-teacher{% else %}btn-teacher{% endif %}">
+                        class="btn {% if user.is_teacher %}btn-not-teacher{% else %}btn-teacher{% endif %}">
                             {% if user.is_teacher %}Убрать учителя{% else %}Сделать учителем{% endif %}
                         </a>
+                        <form method="POST" action="{{ url_for('admin_delete_user', user_id=user.id) }}" style="display: inline;">
+                            <button type="submit" class="btn btn-danger" onclick="return confirm('Вы уверены, что хотите удалить этого пользователя?')">
+                                Удалить
+                            </button>
+                        </form>
                     </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
+        <div style="margin-top: 40px; text-align: center;">
+            <a href="{{ url_for('admin_tasks') }}" class="btn btn-view" style="margin-right: 10px;">
+                Управление заданиями
+            </a>
+            <a href="{{ url_for('view_tests') }}" class="btn btn-view">
+                Управление тестами
+            </a>
+        </div>
     </div>
 </body>
 </html>
