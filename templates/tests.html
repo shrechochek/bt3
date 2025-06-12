@@ -99,12 +99,13 @@
     
     {% if tests %}
         {% for test in tests %}
+        {% if not test[4] or user.username != 'Гость' %}
         <div class="test">
             <div class="test-id">ID теста: {{ test[0] }}</div>
             <div class="test-title">Тест #{{ test[0] }}</div>
             <div class="test-info">Время: {{ test[1] }} минут</div>
             <div class="test-info">Попыток: {{ test[2] }}</div>
-            <!-- {% if test[4] %}
+            <!-- {% if test[4] and user.username == 'Гость' %}
                 <div class="test-info">Код доступа: {{ test[4] }}</div>
             {% endif %} -->
             <!-- <div class="test-tasks">ID заданий: {{ test[3] }}</div> -->
@@ -126,6 +127,7 @@
             </form>
             {% endif %}
         </div>
+        {% endif %}
         {% endfor %}
     {% else %}
         <div class="no-tests">

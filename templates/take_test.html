@@ -193,14 +193,8 @@
             if (timeLeft <= 60) { // 1 минута
                 timerElement.classList.add('warning');
             }
-            
-            // if (timeLeft <= 0) {
-            if (timeLeft <= 50) {
-                // Автоматически отправляем форму
-                // if (testForm && !testForm.dataset.submitted) {
-                //     testForm.dataset.submitted = true;
-                //     testForm.submit();
-                // }
+        
+            if (timeLeft <= 0) {
                 submitButton.click();
                 return;
             }

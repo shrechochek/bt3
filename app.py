@@ -1001,7 +1001,7 @@ def check_time():
 
 @app.route('/profile')
 def profile():
-    if 'user_id' not in session or session['user_id'] is None:
+    if 'user_id' not in session or session['user_id'] == 0:
         flash('Для доступа к профилю необходимо войти в систему', 'error')
         return redirect(url_for('login'))
     
@@ -1038,7 +1038,7 @@ def take_test(test_id):
     # if test[4] and is_guest():
     #     return redirect(url_for('login'))
 
-    if test[4] and session['user_id'] is None:
+    if test[4] and session['user_id'] == 0:
         return redirect(url_for('login'))
 
     # Проверка доступа для приватных тестов
@@ -1057,7 +1057,7 @@ def take_test(test_id):
     user_attempts = get_user_attempts(test_id, session['user_id'])
     attempts_left = test[2] - len(user_attempts)
     
-    if attempts_left <= 0:
+    if attempts_left <= 0 and session['user_id'] != 0:
         flash('У вас больше нет попыток для прохождения этого теста', 'error')
         return redirect(url_for('view_tests'))
     
@@ -1077,6 +1077,7 @@ def take_test(test_id):
         
         # Рассчитываем результат в процентах
         score = int((correct_count / len(tasks)) * 100) if tasks else 0
+
         
         # Сохраняем попытку
         attempt_id = create_attempt(test_id, session['user_id'], score, user_answers)
@@ -1098,9 +1099,9 @@ def take_test(test_id):
 
 @app.route('/test/result/<int:attempt_id>')
 def test_result(attempt_id):
-    if 'user_id' not in session or session['user_id'] is None:
-        flash('Для просмотра результатов необходимо войти в систему', 'error')
-        return redirect(url_for('login'))
+    # if 'user_id' not in session or session['user_id'] == 0:
+    #     flash('Для просмотра результатов необходимо войти в систему', 'error')
+    #     return redirect(url_for('login'))
     
     attempt = get_attempt_by_id(attempt_id)
     if not attempt:
@@ -1310,7 +1311,8 @@ def register():
 
 @app.route('/guest')
 def guest():
-    session['user_id'] = None
+    session['user_id'] = 0
+    # session['user_id'] = None
     session['user_info'] = {'username': 'Гость'}
     return redirect(url_for('home'))
 
