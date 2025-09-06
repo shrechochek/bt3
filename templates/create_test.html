@@ -90,6 +90,11 @@
         
         <form method="POST" action="{{ url_for('create_test_page') }}">
             <div class="form-group">
+                <label for="name">Название теста:</label>
+                <input type="info-text" id="name" name="name" class="form-control" required min="1">
+            </div>
+
+            <div class="form-group">
                 <label for="time">Время на тест (в минутах):</label>
                 <input type="number" id="time" name="time" class="form-control" required min="1">
             </div>

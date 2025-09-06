@@ -130,7 +130,8 @@ def init_db():
             time INTEGER NOT NULL,
             attempts INTEGER NOT NULL,
             tasks_id TEXT NOT NULL,
-            access_code TEXT
+            access_code TEXT,
+            name TEXT NOT NULL
         )
     """)
     
@@ -225,13 +226,13 @@ def search_tasks(params):
     conn.close()
     return tasks
 
-def create_test(time, attempts, tasks_id, access_code=None):
+def create_test(name, time, attempts, tasks_id, access_code=None):
     conn = sqlite3.connect("datbase.db")
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO tests (time, attempts, tasks_id, access_code)
-        VALUES (?, ?, ?, ?)
-    """, (time, attempts, tasks_id, access_code))
+        INSERT INTO tests (time, attempts, tasks_id, access_code, name)
+        VALUES (?, ?, ?, ?, ?)
+    """, (time, attempts, tasks_id, access_code, name))
     conn.commit()
     test_id = cursor.lastrowid
     conn.close()
@@ -1146,6 +1147,7 @@ def create_test_page():
         return redirect(url_for('home'))
     
     if request.method == 'POST':
+        name = request.form.get('name')
         time = request.form.get('time')
         attempts = request.form.get('attempts')
         tasks_id = request.form.get('tasks_id')
@@ -1155,7 +1157,7 @@ def create_test_page():
             flash('Пожалуйста, заполните все обязательные поля', 'error')
         else:
             try:
-                create_test(int(time), int(attempts), tasks_id, access_code)
+                create_test(name, int(time), int(attempts), tasks_id, access_code)
                 # flash('Тест успешно создан!', 'success')
                 return redirect(url_for('home'))
             except ValueError:
