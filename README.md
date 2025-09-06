@@ -6,7 +6,6 @@
 
 выполните команду в терминале:
 
-git clone https://github.com/example/my-repo.git
 ```terminal
 git clone https://github.com/shrechochek/bt3.git
 ```
