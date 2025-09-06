@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>.</title>
+  <style>
+    /* Общие стили */
+    body {
+      font-family: Arial, sans-serif;
+      color: #222;
+      margin: 20px;
+      max-width: 800px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px 0; }
+    .meta { font-size: 13px; color: #555; margin-bottom: 10px; }
+
+    .question {
+      margin: 18px 0;
+      page-break-inside: avoid;
+    }
+    .q-title {
+      font-weight: bold;
+      margin-bottom: 6px;
+      font-size: 16px;
+    }
+    .q-desc {
+      white-space: pre-wrap;
+      margin-bottom: 10px;
+      font-size: 15px;
+    }
+
+    /* Большое поле ответа — визуально большое пустое пространство */
+    .answer-field {
+      border: 1px dashed #bbb;
+      min-height: 160px; /* Большое место для ответа */
+      padding: 12px;
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    .small-note {
+      font-size: 12px;
+      color: #666;
+      margin-top: 8px;
+    }
+
+    /* Печать — убрать лишние элементы */
+    @media print {
+      body { margin: 10mm; }
+      .no-print { display: none; }
+      .answer-field { min-height: 120px; /* немного меньше при печати */ }
+    }
+
+    /* Кнопка возврата для интерактивного просмотра (скрывается при печати) */
+    .controls {
+      margin-bottom: 12px;
+    }
+    .btn {
+      display:inline-block;
+      padding:8px 12px;
+      background:#3498db;
+      color:white;
+      text-decoration:none;
+      border-radius:6px;
+      font-size:14px;
+    }
+  </style>
+</head>
+<body onload="maybeAutoPrint()">
+  <div class="controls no-print">
+    <a href="#" onclick="window.print(); return false;" class="btn">Печать</a>
+    <a href="javascript:window.close()" class="btn" style="background:#777;margin-left:8px">Закрыть</a>
+  </div>
+
+  <header>
+    <h1>Тест №{{ test[0] }}</h1>
+  </header>
+
+  <main>
+    {% for task in tasks %}
+      <div class="question">
+        <div class="q-title">Вопрос {{ loop.index }}. {{ task[1] }}</div>
+        <div class="q-desc">{{ task[2] }}</div>
+
+        <!-- Большое пустое поле для ответов (будет напечатано как пустое поле) -->
+        <div class="answer-field"></div>
+      </div>
+    {% endfor %}
+  </main>
+
+  <script>
+    // Авто-печать, если окно открыто в новом табе/попапе и в query есть ?autoprint=1
+    function maybeAutoPrint(){
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('autoprint') === '1') {
+          // Даем время для загрузки шрифтов/ресурсов, затем вызываем print
+          setTimeout(()=>{ window.print(); }, 250);
+        }
+      } catch(e){}
+    }
+  </script>
+</body>
+</html>

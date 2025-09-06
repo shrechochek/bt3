@@ -1245,13 +1245,33 @@ def submit_test(test_id):
                          score=score,
                          user=session.get('user_info'))
 
+# @app.route('/tests')
+# def view_tests():
+#     if 'user_id' not in session:
+#         return redirect(url_for('login'))
+    
+#     tests = get_all_tests()
+#     return render_template('tests.html', tests=tests, user=session.get('user_info'))
+
 @app.route('/tests')
 def view_tests():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
     tests = get_all_tests()
-    return render_template('tests.html', tests=tests, user=session.get('user_info'))
+
+    # Проверяем, является ли текущий пользователь учителем
+    conn = sqlite3.connect("datbase.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM teachers WHERE user_id = ?", (session['user_id'],))
+    is_teacher = cursor.fetchone() is not None
+    conn.close()
+
+    return render_template('tests.html',
+                           tests=tests,
+                           user=session.get('user_info'),
+                           is_teacher=is_teacher)
+
 
 @app.route('/images/<filename>')
 def get_image(filename):
@@ -1341,6 +1361,39 @@ def search():
                          get_difficulty_color=get_difficulty_color,
                          search_params=search_params,
                          user=session.get('user_info'))
+
+
+@app.route('/print-test/<int:test_id>')
+def print_test(test_id):
+    # Только авторизованные учителя могут печатать
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect("datbase.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM teachers WHERE user_id = ?", (session['user_id'],))
+    is_teacher = cursor.fetchone() is not None
+
+    if not is_teacher:
+        conn.close()
+        return "Доступ запрещен", 403
+
+    test = get_test_by_id(test_id)
+    if not test:
+        conn.close()
+        return "Тест не найден", 404
+
+    # Получаем задания теста
+    task_ids = [int(id_str.strip()) for id_str in test[3].split(',') if id_str.strip()]
+    tasks = get_tasks_by_ids(task_ids)
+    conn.close()
+
+    # Возвращаем минималистичный шаблон для печати
+    return render_template('print_test.html',
+                           test=test,
+                           tasks=tasks,
+                           user=session.get('user_info'))
+
 
 if __name__ == '__main__':
     init_db()

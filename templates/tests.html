@@ -114,7 +114,7 @@
                 <a href="{{ url_for('start_test', test_id=test[0]) }}" class="btn">Начать тест</a>
                 {% if is_teacher %}
                     <button onclick="printTest({{ test[0] }})" class="btn btn-pdf">
-                        <i class="fas fa-file-pdf"></i> Печать теста
+                        Печать теста
                     </button>
                 {% endif %}
             </div>
@@ -135,4 +135,12 @@
         </div>
     {% endif %}
 </body>
+<script>
+function printTest(testId) {
+    // Откроет минималистичную страницу печати в новой вкладке и запустит печать
+    // добавляем autoprint=1 чтобы страница сама вызвала window.print()
+    const url = '/print-test/' + testId + '?autoprint=1';
+    window.open(url, '_blank', 'noopener');
+}
+</script>
 </html>
