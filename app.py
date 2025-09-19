@@ -7,6 +7,17 @@ from flask import jsonify
 from datetime import datetime, timedelta
 import hashlib
 from flask import make_response
+import re
+import tempfile
+from pathlib import Path
+from flask import (
+    Flask, request, render_template, redirect, url_for, flash, session, current_app
+)
+from flask import (
+    request, session, redirect, url_for, flash, render_template,
+    jsonify, current_app
+)
+import fitz  # PyMuPDF
 
 app = Flask(__name__)
 app.secret_key = 'SECRET_KEY'
@@ -15,6 +26,11 @@ app.secret_key = 'SECRET_KEY'
 app.config['UPLOAD_FOLDER'] = 'images'
 if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
+
+app.config.setdefault("MAX_CONTENT_LENGTH", 200 * 1024 * 1024)  # 200 MB limit
+ALLOWED_EXTENSIONS = {"pdf"}
+Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
+
 
 def get_difficulty_color(difficulty):
     colors = [
@@ -26,6 +42,38 @@ def get_difficulty_color(difficulty):
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
+def allowed_file(filename: str) -> bool:
+    if not filename or "." not in filename:
+        return False
+    return filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def guess_ext_from_bytes(b: bytes) -> str:
+    if not b or len(b) < 12:
+        return "png"
+    if b.startswith(b'\x89PNG\r\n\x1a\n'):
+        return "png"
+    if b.startswith(b'\xff\xd8\xff'):
+        return "jpg"
+    if b.startswith(b'GIF87a') or b.startswith(b'GIF89a'):
+        return "gif"
+    if b.startswith(b'II*\x00') or b.startswith(b'MM\x00*'):
+        return "tiff"
+    if b.startswith(b'BM'):
+        return "bmp"
+    if b[0:4] == b'RIFF' and b[8:12] == b'WEBP':
+        return "webp"
+    return "png"
+
+def save_image_bytes(image_bytes: bytes, folder: str, base_name: str, ext: str = None):
+    if ext is None:
+        ext = guess_ext_from_bytes(image_bytes)
+    Path(folder).mkdir(parents=True, exist_ok=True)
+    filename = f"{base_name}.{ext}"
+    out_path = os.path.join(folder, filename)
+    with open(out_path, "wb") as f:
+        f.write(image_bytes)
+    return out_path
 
 def get_test_by_id(test_id):
     conn = sqlite3.connect("datbase.db")
@@ -108,13 +156,6 @@ def init_db():
             source TEXT
         )
     """)
-
-    task_title = 'В лаборатории цитологии провели эксперимент с белой планарией. Для него учёные использовали три неглубокие ёмкости, которые соединили каналами, благодаря которым планария могла свободно перемещаться из одной ёмкости в другую. В первую ёмкость налили раствор с большим количеством соли (гипертонический раствор), во вторую – с небольшим количеством соли (гипотонический раствор), а в третью ёмкость добавили столько же соли, сколько в пресном озере (изотонический раствор). Лаборант поместил планарию в первую ёмкость и стал наблюдать за её движением. Планария медленно переползла по каналу во вторую ёмкость, а затем и в третью, где осталась. Эксперимент повторили на десяти планариях и во всех случаях получили один и тот же результа'
-    task_description = 'а) планарии способны к ресничному движению б) планарии невосприимчивы к соли в) планария из данного опыта обычно обитает в пресных водоёмах г) планария двигалась хаотично и случайно попала в третью ёмкость'
-    task_anwser = 'в'
-    task_difficulty = 4
-    task_tags = 'черви'
-    task_source = 'ВСОШ'
     
     # cursor.execute("""
     #     INSERT INTO tasks6 (title, description, anwser, difficulty, tags, source)
@@ -123,15 +164,14 @@ def init_db():
 
     # cursor.execute("""DELETE FROM tasks6 WHERE id = 20""")
     
-    # Таблица тестов
+    # Таблица тестов 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS tests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             time INTEGER NOT NULL,
             attempts INTEGER NOT NULL,
             tasks_id TEXT NOT NULL,
-            access_code TEXT,
-            name TEXT NOT NULL
+            access_code TEXT
         )
     """)
     
@@ -226,13 +266,13 @@ def search_tasks(params):
     conn.close()
     return tasks
 
-def create_test(name, time, attempts, tasks_id, access_code=None):
+def create_test(time, attempts, tasks_id, access_code=None):
     conn = sqlite3.connect("datbase.db")
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO tests (time, attempts, tasks_id, access_code, name)
-        VALUES (?, ?, ?, ?, ?)
-    """, (time, attempts, tasks_id, access_code, name))
+        INSERT INTO tests (time, attempts, tasks_id, access_code)
+        VALUES (?, ?, ?, ?)
+    """, (time, attempts, tasks_id, access_code))
     conn.commit()
     test_id = cursor.lastrowid
     conn.close()
@@ -270,6 +310,218 @@ def register_user(username, password, name, surname):
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in {'jpg', 'jpeg', 'png'}
+
+
+def process_pdf_and_create_tasks(pdf_path: str, uploader_user_id: int, db_path: str):
+    """
+    Открывает PDF, извлекает текст заданий и картинки, пытается сопоставить картинки с заданиями.
+    Создаёт записи в БД tasks6.
+    Возвращает список словарей: [{'task_id': int, 'task_num': int, 'title': str, 'desc': str, 'images': [paths]} ...]
+    """
+    results = []
+    doc = fitz.open(pdf_path)
+
+    # 1) Собираем весь текст по страницам — пригодится для поиска текстовых заданий
+    pages_text = [doc[p].get_text("text") or "" for p in range(len(doc))]
+    full_text = "\n".join(pages_text)
+
+    # 2) Находим позиции всех явных "N." меток (начало задания). Используем многострочный режим.
+    #    Регекс ловит начало строки с номером и точкой: "1.", "12." и т.д.
+    pattern = re.compile(r'(?m)^\s*(\d{1,3})\.\s*')  # захватываем номер
+    starts = []
+    for m in pattern.finditer(full_text):
+        starts.append((m.start(), int(m.group(1))))
+
+    # Если не найдено — попробуем извлекать по страницам: найти на каждой странице "^\s*\d+\."
+    if not starts:
+        # fallback: искать на каждой странице отдельно
+        cursor = 0
+        for p_idx, txt in enumerate(pages_text):
+            for m in re.finditer(r'(?m)^\s*(\d{1,3})\.\s*', txt):
+                starts.append((cursor + m.start(), int(m.group(1))))
+            cursor += len(txt) + 1
+
+    # 3) Разбиваем full_text на блоки заданий по найденным позициям
+    tasks_text_blocks = []
+    if starts:
+        for i, (pos, num) in enumerate(starts):
+            start_pos = pos
+            end_pos = starts[i+1][0] if i + 1 < len(starts) else len(full_text)
+            block = full_text[start_pos:end_pos].strip()
+            # уберём ведущую метку "N." из блока
+            block = re.sub(r'^\s*\d{1,3}\.\s*', '', block, count=1, flags=re.M)
+            tasks_text_blocks.append((num, block))
+    else:
+        # если вообще не нашли, создадим одну задачу с полным текстом
+        tasks_text_blocks.append((None, full_text))
+
+    # 4) Извлекаем изображения и пытаемся сопоставить с задачами по странице/coord (упрощённо)
+    # подготовим карту: для каждой страницы — список (task_number, y0) ближайших меток (вычислим по get_text("words"))
+    task_positions_by_page = {}  # page_idx -> list of (task_num, y0)
+    # Создадим список глобальных задач с page_index and y0
+    global_tasks = []  # (num, page_index, y0)
+    # перебор страниц для поиска "N." на уровне слов (как в вашем первом скрипте)
+    for p_idx in range(len(doc)):
+        words = doc[p_idx].get_text("words")  # x0,y0,x1,y1,"word"
+        page_candidates = []
+        for w in words:
+            token = w[4].strip()
+            m = re.match(r'^(\d+)\.$', token)
+            if m:
+                num = int(m.group(1))
+                y0 = w[1]
+                page_candidates.append((num, y0))
+                global_tasks.append((num, p_idx, y0, w[0]))  # keep x0 too
+        task_positions_by_page[p_idx] = page_candidates
+
+    saved_images = []  # list of (path, page_index, assigned_task_num or None)
+
+    # folder to save task images
+    images_root = os.path.join(app.config['UPLOAD_FOLDER'], "pdf_extracted_images")
+    Path(images_root).mkdir(parents=True, exist_ok=True)
+
+    for p_idx in range(len(doc)):
+        page = doc[p_idx]
+        page_dict = page.get_text("dict")
+        # determine part/label omitted — используем просто номер страницы
+        image_blocks = []
+        for block in page_dict.get("blocks", []):
+            if block.get("type") == 1:  # image block
+                bbox = block.get("bbox", [0,0,0,0])
+                img_obj = block.get("image")
+                image_bytes = None
+                xref = None
+                ext = None
+                if isinstance(img_obj, dict):
+                    xref = img_obj.get("xref")
+                    if xref is not None:
+                        try:
+                            base = doc.extract_image(xref)
+                            image_bytes = base.get("image")
+                            ext = base.get("ext")
+                        except Exception:
+                            image_bytes = None
+                    else:
+                        possible = img_obj.get("image")
+                        if isinstance(possible, (bytes, bytearray)):
+                            image_bytes = bytes(possible)
+                elif isinstance(img_obj, (bytes, bytearray)):
+                    image_bytes = bytes(img_obj)
+                elif isinstance(img_obj, int):
+                    xref = img_obj
+                    try:
+                        base = doc.extract_image(xref)
+                        image_bytes = base.get("image")
+                        ext = base.get("ext")
+                    except Exception:
+                        image_bytes = None
+                if image_bytes and (not ext or ext == ""):
+                    ext = guess_ext_from_bytes(image_bytes)
+                image_blocks.append((xref, bbox, image_bytes, ext))
+
+        # кандидаты заданий на странице
+        candidates = task_positions_by_page.get(p_idx, [])
+        for idx, (xref, bbox, image_bytes, ext) in enumerate(image_blocks, start=1):
+            if not image_bytes:
+                # try by xref if possible
+                if xref:
+                    try:
+                        base = doc.extract_image(xref)
+                        image_bytes = base.get("image")
+                        ext = base.get("ext") or guess_ext_from_bytes(image_bytes)
+                    except Exception:
+                        image_bytes = None
+            if not image_bytes:
+                continue
+
+            # координаты картинки
+            img_top = bbox[1]
+            img_mid = (bbox[1] + bbox[3]) / 2.0
+
+            # найти ближайшее задание на той же странице (если есть)
+            chosen_task = None
+            chosen_dist = None
+            if candidates:
+                for (num, y0) in candidates:
+                    dist = abs(img_mid - y0)
+                    # если метка задания расположена ниже картинки — считаем так, чтобы избегать неверных привязок
+                    if y0 > img_top:
+                        dist += 1000
+                    if chosen_dist is None or dist < chosen_dist:
+                        chosen_dist = dist
+                        chosen_task = num
+            else:
+                # если на странице нет меток — найдём предыдущее глобальное задание
+                prev = [t for t in global_tasks if t[1] <= p_idx]
+                if prev:
+                    best = None
+                    best_score = None
+                    for (num, gp_idx, y0, x0) in prev:
+                        page_diff = p_idx - gp_idx
+                        score = page_diff*1000 + abs(img_mid - y0)
+                        if best_score is None or score < best_score:
+                            best_score = score
+                            best = num
+                    chosen_task = best
+
+            base_name = f"page{p_idx+1:03d}_img{idx:02d}"
+            if chosen_task:
+                base_name = f"task{chosen_task:03d}_" + base_name
+
+            # save image
+            dest = save_image_bytes(image_bytes, images_root, base_name, ext)
+            saved_images.append((dest, p_idx, chosen_task))
+
+    # 5) Создаём записи в БД (tasks6). Для title возьмём "Задание N" или первую строку блока.
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    created = []
+    for (num, block_text) in tasks_text_blocks:
+        # prepare fields
+        title = f"Задание {num}" if num is not None else (block_text.splitlines()[0][:120] if block_text else "Задание")
+        description = block_text
+        answer = ""  # автоматически не определяем
+        difficulty = 1
+        tags = ""
+        source = os.path.basename(pdf_path)
+
+        cursor.execute("""
+            INSERT INTO tasks6 (title, description, anwser, difficulty, tags, source)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (title, description, answer, difficulty, tags, source))
+        task_id = cursor.lastrowid
+        created.append({'task_id': task_id, 'task_num': num, 'title': title, 'description': description, 'images': []})
+
+    conn.commit()
+    conn.close()
+
+    # 6) Привяжем картинки к созданным задачам по номеру task_num (если нашлись соответствия)
+    # построим map номер задания -> task_id (по порядку вставки)
+    num_to_task_id = {}
+    # При вставке выше мы сохраняли created в том же порядке, но не гарантируем, что в created порядок соответствует номерам.
+    for item in created:
+        if item['task_num'] is not None:
+            # найдём соответствие — возможно несколько с тем же номером, берём первое попавшееся
+            num_to_task_id[item['task_num']] = item['task_id']
+
+    # переместим/пометим найденные saved_images в папки с id задач
+    for img_path, p_idx, assigned_num in saved_images:
+        if assigned_num and assigned_num in num_to_task_id:
+            tid = num_to_task_id[assigned_num]
+            # переместим файл в папку uploads/task_images/{task_id}/
+            task_dir = os.path.join(app.config['UPLOAD_FOLDER'], "task_images", str(tid))
+            Path(task_dir).mkdir(parents=True, exist_ok=True)
+            new_name = os.path.join(task_dir, os.path.basename(img_path))
+            os.replace(img_path, new_name)
+            # добавим в created
+            for c in created:
+                if c['task_id'] == tid:
+                    c['images'].append(new_name)
+        else:
+            # оставим в папке pdf_extracted_images (не привязано)
+            pass
+
+    return created
            
 
 # Добавим после других функций в app.py
@@ -1147,7 +1399,6 @@ def create_test_page():
         return redirect(url_for('home'))
     
     if request.method == 'POST':
-        name = request.form.get('name')
         time = request.form.get('time')
         attempts = request.form.get('attempts')
         tasks_id = request.form.get('tasks_id')
@@ -1157,7 +1408,7 @@ def create_test_page():
             flash('Пожалуйста, заполните все обязательные поля', 'error')
         else:
             try:
-                create_test(name, int(time), int(attempts), tasks_id, access_code)
+                create_test(int(time), int(attempts), tasks_id, access_code)
                 # flash('Тест успешно создан!', 'success')
                 return redirect(url_for('home'))
             except ValueError:
@@ -1247,33 +1498,13 @@ def submit_test(test_id):
                          score=score,
                          user=session.get('user_info'))
 
-# @app.route('/tests')
-# def view_tests():
-#     if 'user_id' not in session:
-#         return redirect(url_for('login'))
-    
-#     tests = get_all_tests()
-#     return render_template('tests.html', tests=tests, user=session.get('user_info'))
-
 @app.route('/tests')
 def view_tests():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
     tests = get_all_tests()
-
-    # Проверяем, является ли текущий пользователь учителем
-    conn = sqlite3.connect("datbase.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT 1 FROM teachers WHERE user_id = ?", (session['user_id'],))
-    is_teacher = cursor.fetchone() is not None
-    conn.close()
-
-    return render_template('tests.html',
-                           tests=tests,
-                           user=session.get('user_info'),
-                           is_teacher=is_teacher)
-
+    return render_template('tests.html', tests=tests, user=session.get('user_info'))
 
 @app.route('/images/<filename>')
 def get_image(filename):
@@ -1343,6 +1574,147 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+@app.route("/upload-pdf", methods=["GET", "POST"])
+def upload_pdf():
+    """
+    Диагностический / устойчивый маршрут загрузки PDF.
+    Возвращает JSON при AJAX (X-Requested-With) с подробной диагностикой.
+    """
+    # проверка авторизации
+    if 'user_id' not in session:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'unauthenticated', 'message': 'login required'}), 401
+        return redirect(url_for('login'))
+
+    # проверка учителя
+    try:
+        conn = sqlite3.connect("datbase.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM teachers WHERE user_id = ?", (session['user_id'],))
+        teacher = cursor.fetchone()
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    if not teacher:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'forbidden', 'message': 'Только учителя'}), 403
+        flash("Только учителя могут загружать PDF для авторазбора", "error")
+        return redirect(url_for('home'))
+
+    if request.method == "POST":
+        # Попытаемся достать файл из нескольких возможных ключей (на случай, если front-end отправил другое имя)
+        file = None
+        tried_keys = []
+        for key in ("file", "file0", "file1", "file[]", "upload", "pdf"):
+            tried_keys.append(key)
+            if key in request.files:
+                file = request.files.get(key)
+                break
+        # если не нашли — попробуем взять первый файл в request.files
+        if not file and request.files:
+            tried_keys.append("first_in_request_files")
+            file = next(iter(request.files.values()))
+
+        # Диагностика: какие ключи пришли
+        received_keys = list(request.files.keys())
+
+        if not file:
+            msg = "Файл не обнаружен в request.files. Ключи: " + str(received_keys)
+            current_app.logger.debug(msg)
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'status': 'error', 'message': msg, 'received_keys': received_keys}), 400
+            flash(msg, "error")
+            return redirect(request.url)
+
+        # Соберём диагностическую информацию
+        filename = file.filename or ""
+        mimetype = file.mimetype or ""
+        diagnostics = {
+            "received_keys": received_keys,
+            "used_key": key if 'key' in locals() else 'unknown',
+            "filename_raw": filename,
+            "mimetype": mimetype,
+            "allowed_by_extension": allowed_file(filename),
+        }
+
+        # Если имя файла пустое или расширение не pdf — попробуем детектировать по первым байтам
+        first_bytes = None
+        try:
+            # прочитаем первые 16 байт
+            stream = file.stream
+            stream.seek(0)
+            first_bytes = stream.read(16)
+            # вернём поток в начало, чтобы потом можно было сохранить
+            try:
+                stream.seek(0)
+            except Exception:
+                pass
+            diagnostics['first_bytes_prefix'] = first_bytes[:8].hex() if isinstance(first_bytes, (bytes, bytearray)) else str(first_bytes)
+            diagnostics['looks_like_pdf_by_magic'] = isinstance(first_bytes, (bytes, bytearray)) and first_bytes.startswith(b'%PDF')
+        except Exception as e:
+            diagnostics['read_first_bytes_error'] = str(e)
+            current_app.logger.exception("Не удалось прочитать первые байты файла")
+
+        # Если имя пустое или расширение не pdf, но magic bytes показывают PDF — позволим
+        is_pdf_magic = diagnostics.get('looks_like_pdf_by_magic', False)
+        if not diagnostics['allowed_by_extension'] and not is_pdf_magic:
+            # не pdf по расширению и не pdf по magic
+            msg = f"Только PDF разрешены. filename='{filename}', mimetype='{mimetype}', allowed_by_extension={diagnostics['allowed_by_extension']}, magic_pdf={is_pdf_magic}"
+            current_app.logger.debug("Upload rejected: " + msg)
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                diagnostics['message'] = msg
+                return jsonify({'status': 'error', 'message': msg, 'diagnostics': diagnostics}), 400
+            flash(msg, "error")
+            return redirect(request.url)
+
+        # Сохраняем временно файл и вызываем обработчик
+        tmp_dir = tempfile.mkdtemp(prefix="pdf_upload_")
+        pdf_filename = secure_filename(filename) or "uploaded.pdf"
+        pdf_path = os.path.join(tmp_dir, pdf_filename)
+        try:
+            file.save(pdf_path)
+            current_app.logger.debug(f"Saved uploaded file to {pdf_path}")
+            # вызов вашей функции обработки (предполагаем, что она есть)
+            created = process_pdf_and_create_tasks(pdf_path, session['user_id'], db_path="datbase.db")
+
+            # возвращаем JSON при AJAX
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                created_summary = [{'task_id': c.get('task_id'), 'task_num': c.get('task_num')} for c in created]
+                return jsonify({
+                    'status': 'ok',
+                    'created': created_summary,
+                    'diagnostics': diagnostics
+                }), 200
+
+            # обычный POST -> redirect + flash
+            flash(f"Обработано: создано {len(created)} заданий.", "success")
+            flash(f"IDs созданных заданий: {[c.get('task_id') for c in created]}", "success")
+            return redirect(url_for('home'))
+
+        except Exception as e:
+            current_app.logger.exception("Ошибка при обработке PDF")
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                diagnostics['exception'] = str(e)
+                return jsonify({'status': 'error', 'message': str(e), 'diagnostics': diagnostics}), 500
+            flash(f"Ошибка при обработке PDF: {e}", "error")
+            return redirect(request.url)
+        finally:
+            try:
+                if os.path.exists(pdf_path):
+                    os.remove(pdf_path)
+                try:
+                    os.rmdir(tmp_dir)
+                except OSError:
+                    pass
+            except Exception:
+                current_app.logger.exception("Ошибка при очистке временных файлов")
+
+    # GET
+    return render_template("upload_pdf.html")
+
 @app.route('/search', methods=['GET'])
 def search():
     if 'user_id' not in session:
@@ -1363,39 +1735,6 @@ def search():
                          get_difficulty_color=get_difficulty_color,
                          search_params=search_params,
                          user=session.get('user_info'))
-
-
-@app.route('/print-test/<int:test_id>')
-def print_test(test_id):
-    # Только авторизованные учителя могут печатать
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
-    conn = sqlite3.connect("datbase.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT 1 FROM teachers WHERE user_id = ?", (session['user_id'],))
-    is_teacher = cursor.fetchone() is not None
-
-    if not is_teacher:
-        conn.close()
-        return "Доступ запрещен", 403
-
-    test = get_test_by_id(test_id)
-    if not test:
-        conn.close()
-        return "Тест не найден", 404
-
-    # Получаем задания теста
-    task_ids = [int(id_str.strip()) for id_str in test[3].split(',') if id_str.strip()]
-    tasks = get_tasks_by_ids(task_ids)
-    conn.close()
-
-    # Возвращаем минималистичный шаблон для печати
-    return render_template('print_test.html',
-                           test=test,
-                           tasks=tasks,
-                           user=session.get('user_info'))
-
 
 if __name__ == '__main__':
     init_db()
