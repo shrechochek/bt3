@@ -1735,6 +1735,38 @@ def upload_pdf():
     # GET
     return render_template("upload_pdf.html")
 
+@app.route('/print-test/<int:test_id>')
+def print_test(test_id):
+    # Только авторизованные учителя могут печатать
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect("datbase.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM teachers WHERE user_id = ?", (session['user_id'],))
+    is_teacher = cursor.fetchone() is not None
+
+    if not is_teacher:
+        conn.close()
+        return "Доступ запрещен", 403
+
+    test = get_test_by_id(test_id)
+    if not test:
+        conn.close()
+        return "Тест не найден", 404
+
+    # Получаем задания теста
+    task_ids = [int(id_str.strip()) for id_str in test[3].split(',') if id_str.strip()]
+    tasks = get_tasks_by_ids(task_ids)
+    conn.close()
+
+    # Возвращаем минималистичный шаблон для печати
+    return render_template('print_test.html',
+                           test=test,
+                           tasks=tasks,
+                           user=session.get('user_info'))
+
+
 @app.route('/search', methods=['GET'])
 def search():
     if 'user_id' not in session:
