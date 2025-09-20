@@ -85,11 +85,17 @@
             margin: 10px 0;
             color: #34495e;
         }
-        .task-image {
+        .task-images {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .task-images img {
             max-width: 100%;
             height: auto;
-            margin: 10px 0;
             border-radius: 5px;
+            max-height: 250px;
         }
         .task-answer {
             margin: 10px 0;
@@ -177,48 +183,48 @@
             <div class="task-controls">
                 {% if is_teacher %}
                 <!-- кнопка редактировать (видна только учителям) -->
-                <a href="{{ url_for('edit_task', task_id=task[0]) }}" class="edit-btn" title="Редактировать задание">
+                <a href="{{ url_for('edit_task', task_id=task.id) }}" class="edit-btn" title="Редактировать задание">
                     <span class="icon-pencil" aria-hidden="true"></span>
                     Редактировать
                 </a>
                 {% endif %}
             </div>
 
-            <div class="task-id">ID: {{ task[0] }}</div>
-            <div class="task-title">{{ task[1] }}</div>
+            <div class="task-id">ID: {{ task.id }}</div>
+            <div class="task-title">{{ task.title }}</div>
             
-            <!-- Проверяем наличие изображения -->
-            {% if task[0] %}
-                {% set image_path = 'images/' ~ task[0] ~ '.jpg' %}
-                {% if image_path %}
-                <img src="{{ url_for('get_image', filename=task[0]~'.jpg') }}" 
-                     alt="Изображение к задаче {{ task[0] }}" 
-                     class="task-image"
+            <!-- выводим все изображения -->
+            {% if task.images %}
+            <div class="task-images">
+                {% for image in task.images %}
+                <img src="{{ url_for('get_image', filename=image.filename) }}" 
+                     alt="Изображение к задаче {{ task.id }}" 
                      onerror="this.style.display='none'">
-                {% endif %}
+                {% endfor %}
+            </div>
             {% endif %}
             
-            <div class="task-description">{{ task[2] }}</div>
+            <div class="task-description">{{ task.description }}</div>
             
-            {% if task[3] %}
-            <button class="show-answer-btn" onclick="toggleAnswer('answer-{{ task[0] }}')">
+            {% if task.answer %}
+            <button class="show-answer-btn" onclick="toggleAnswer('answer-{{ task.id }}')">
                 Показать ответ
             </button>
-            <div id="answer-{{ task[0] }}" class="task-answer">
-                Ответ: {{ task[3] }}
+            <div id="answer-{{ task.id }}" class="task-answer">
+                Ответ: {{ task.answer }}
             </div>
             {% endif %}
             
-            <div class="task-difficulty" style="background-color: {{ get_difficulty_color(task[4]) }}">
-                Сложность: {{ task[4] }}/10
+            <div class="task-difficulty" style="background-color: {{ get_difficulty_color(task.difficulty) }}">
+                Сложность: {{ task.difficulty }}/10
             </div>
             
-            {% if task[5] %}
-            <div class="task-tags">Теги: {{ task[5] }}</div>
+            {% if task.tags %}
+            <div class="task-tags">Теги: {{ task.tags }}</div>
             {% endif %}
             
-            {% if task[6] %}
-            <div class="task-source">Источник: {{ task[6] }}</div>
+            {% if task.source %}
+            <div class="task-source">Источник: {{ task.source }}</div>
             {% endif %}
         </div>
         {% endfor %}
