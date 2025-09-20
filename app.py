@@ -24,6 +24,11 @@ from flask import (
     request, session, redirect, url_for, render_template, current_app
 )
 import fitz  # PyMuPDF
+from flask import (
+    request, session, redirect, url_for, render_template, flash, current_app
+)
+from werkzeug.security import check_password_hash, generate_password_hash
+
 
 app = Flask(__name__)
 app.secret_key = 'SECRET_KEY'
@@ -106,7 +111,31 @@ def search_tasks_local(params):
             pass
 
     return rows
-
+def fetch_user(user_id):
+    """Возвращает словарь пользователя или None."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT id, username, name, surname, password FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {
+            'id': row[0],
+            'username': row[1],
+            'name': row[2],
+            'surname': row[3],
+            'password': row[4]  # raw stored value (maybe hash or plain)
+        }
+    except Exception:
+        current_app.logger.exception("Ошибка получения пользователя")
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return None
+    
 def allowed_image(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXT
 
@@ -1344,30 +1373,135 @@ def check_time():
 
 # Добавляем после других маршрутов в app.py
 
-@app.route('/profile')
+@app.route('/profile', methods=['GET', 'POST'])
 def profile():
+    # Авторизация
     if 'user_id' not in session or session['user_id'] == 0:
         flash('Для доступа к профилю необходимо войти в систему', 'error')
         return redirect(url_for('login'))
-    
+
     user_id = session['user_id']
-    
-    # Получаем все попытки пользователя
-    conn = sqlite3.connect("datbase.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT attempts.id, attempts.test_id, attempts.score, attempts.timestamp, tests.time, tests.attempts
-        FROM attempts
-        JOIN tests ON attempts.test_id = tests.id
-        WHERE attempts.user_id = ?
-        ORDER BY attempts.timestamp DESC
-    """, (user_id,))
-    attempts = cursor.fetchall()
-    conn.close()
-    
-    return render_template('profile.html', 
-                         attempts=attempts, 
-                         user=session.get('user_info'))
+    user = fetch_user(user_id)
+    if not user:
+        flash('Пользователь не найден', 'error')
+        return redirect(url_for('login'))
+
+    # POST — обновление профиля
+    if request.method == 'POST':
+        new_name = request.form.get('name', '').strip()
+        new_surname = request.form.get('surname', '').strip()
+        current_password = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        updates = {}
+        params = []
+
+        # Update name/surname if changed
+        if new_name and new_name != (user.get('name') or ''):
+            updates['name'] = new_name
+        if new_surname and new_surname != (user.get('surname') or ''):
+            updates['surname'] = new_surname
+
+        # Password change requested?
+        if new_password:
+            # require current password
+            if not current_password:
+                flash('Укажите текущий пароль для смены пароля', 'error')
+                return redirect(url_for('profile'))
+            # verify current password: сначала пробуем check_password_hash, иначе сравнение в явном виде
+            stored = user.get('password') or ''
+            pw_ok = False
+            try:
+                if stored and check_password_hash(stored, current_password):
+                    pw_ok = True
+                elif stored == current_password:
+                    # stored in plain text
+                    pw_ok = True
+            except Exception:
+                # на всякий случай fallback
+                if stored == current_password:
+                    pw_ok = True
+
+            if not pw_ok:
+                flash('Текущий пароль неверен', 'error')
+                return redirect(url_for('profile'))
+
+            if new_password != confirm_password:
+                flash('Новый пароль и подтверждение не совпадают', 'error')
+                return redirect(url_for('profile'))
+
+            if len(new_password) < 6:
+                flash('Новый пароль должен быть не менее 6 символов', 'error')
+                return redirect(url_for('profile'))
+
+            updates['password'] = generate_password_hash(new_password)
+
+        if not updates:
+            flash('Нечего обновлять', 'info')
+            return redirect(url_for('profile'))
+
+        # Build SQL update
+        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+        params = list(updates.values())
+        params.append(user_id)
+
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            sql = f"UPDATE users SET {set_clause} WHERE id = ?"
+            cur.execute(sql, tuple(params))
+            conn.commit()
+            conn.close()
+
+            # Обновим отображаемую информацию в session['user_info'], если есть
+            user_after = fetch_user(user_id)
+            if user_after:
+                session['user_info'] = {
+                    'id': user_after['id'],
+                    'username': user_after['username'],
+                    'name': user_after['name'],
+                    'surname': user_after['surname']
+                }
+
+            flash('Профиль успешно обновлён', 'success')
+            return redirect(url_for('profile'))
+
+        except Exception as e:
+            current_app.logger.exception("Ошибка при обновлении профиля")
+            try:
+                conn.close()
+            except Exception:
+                pass
+            flash('Ошибка сервера при сохранении изменений', 'error')
+            return redirect(url_for('profile'))
+
+    # GET — показываем профиль + историю попыток
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT attempts.id, attempts.test_id, attempts.score, attempts.timestamp, tests.time, tests.attempts
+            FROM attempts
+            JOIN tests ON attempts.test_id = tests.id
+            WHERE attempts.user_id = ?
+            ORDER BY attempts.timestamp DESC
+        """, (user_id,))
+        attempts = cursor.fetchall()
+        conn.close()
+    except Exception:
+        current_app.logger.exception("Ошибка при получении попыток")
+        attempts = []
+
+    # если session contains user_info — используем, иначе строим из user
+    user_info = session.get('user_info') or {
+        'id': user['id'],
+        'username': user['username'],
+        'name': user['name'],
+        'surname': user['surname']
+    }
+
+    return render_template('profile.html', attempts=attempts, user=user_info)
     
 @app.route('/test/<int:test_id>', methods=['GET', 'POST'])
 def take_test(test_id):
@@ -1882,6 +2016,7 @@ def search():
         user=session.get('user_info'),
         is_teacher=is_teacher
     )
+
 
 @app.route('/edit-task/<int:task_id>', methods=['GET', 'POST'])
 def edit_task(task_id):
