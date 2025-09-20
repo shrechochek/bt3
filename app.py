@@ -17,6 +17,9 @@ from flask import (
     request, session, redirect, url_for, flash, render_template,
     jsonify, current_app
 )
+from flask import (
+    request, session, redirect, url_for, flash, render_template, current_app, abort
+)
 import fitz  # PyMuPDF
 
 app = Flask(__name__)
@@ -29,8 +32,25 @@ if not os.path.exists(app.config['UPLOAD_FOLDER']):
 
 app.config.setdefault("MAX_CONTENT_LENGTH", 200 * 1024 * 1024)  # 200 MB limit
 ALLOWED_EXTENSIONS = {"pdf"}
+ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg"}
 Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
 
+def allowed_image(filename: str) -> bool:
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXT
+
+def ensure_dir(p: str):
+    Path(p).mkdir(parents=True, exist_ok=True)
+
+def table_has_column(db_path: str, table: str, column: str) -> bool:
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute(f"PRAGMA table_info('{table}')")
+        cols = [r[1] for r in cur.fetchall()]
+        conn.close()
+        return column in cols
+    except Exception:
+        return False
 
 def get_difficulty_color(difficulty):
     colors = [
@@ -1735,6 +1755,170 @@ def search():
                          get_difficulty_color=get_difficulty_color,
                          search_params=search_params,
                          user=session.get('user_info'))
+
+@app.route('/edit-task/<int:task_id>', methods=['GET', 'POST'])
+def edit_task(task_id):
+    # проверка авторизации
+    if 'user_id' not in session:
+        flash("Требуется авторизация", "error")
+        return redirect(url_for('login'))
+
+    # проверка, учитель ли
+    try:
+        conn = sqlite3.connect("datbase.db")
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM teachers WHERE user_id = ?", (session['user_id'],))
+        teacher = cur.fetchone()
+        conn.close()
+    except Exception:
+        current_app.logger.exception("DB error while checking teacher")
+        flash("Ошибка сервера", "error")
+        return redirect(url_for('home'))
+
+    if not teacher:
+        flash("Только учителя могут редактировать задания", "error")
+        return redirect(url_for('home'))
+
+    # Получаем задачу
+    try:
+        conn = sqlite3.connect("datbase.db")
+        cur = conn.cursor()
+        cur.execute("SELECT rowid, * FROM tasks6 WHERE rowid = ?", (task_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            abort(404)
+        # Получим имена колонок, чтобы корректно сопоставить
+        cur.execute("PRAGMA table_info('tasks6')")
+        cols_info = cur.fetchall()  # (cid, name, type, ...)
+        cols = [c[1] for c in cols_info]
+        # Создадим словарь task из row (row[0] == rowid)
+        # row structure: (rowid, col1, col2, ...)
+        task = {}
+        # row[0] is rowid; subsequent indexes correspond to cols order
+        for idx, colname in enumerate(cols, start=1):
+            task[colname] = row[idx]
+        task['id'] = task_id
+        conn.close()
+    except Exception:
+        current_app.logger.exception("DB error while fetching task")
+        flash("Ошибка сервера при получении задания", "error")
+        return redirect(url_for('home'))
+
+    # POST — обновляем
+    if request.method == "POST":
+        title = request.form.get('title', '').strip()
+        description = request.form.get('description', '').strip()
+        answer = request.form.get('answer', '').strip()
+        difficulty = request.form.get('difficulty', '').strip()
+        tags = request.form.get('tags', '').strip()
+        source = request.form.get('source', '').strip()
+        delete_image = request.form.get('delete_image') == 'on'
+        image_file = request.files.get('image')
+
+        # Валидация
+        if not title or not description:
+            flash("Поля 'Условие' и 'Варианты ответа' обязательны", "error")
+            return render_template('edit_task.html', task=task)
+
+        try:
+            difficulty_int = int(difficulty)
+            if difficulty_int < 1 or difficulty_int > 10:
+                raise ValueError()
+        except Exception:
+            flash("Сложность должна быть числом от 1 до 10", "error")
+            return render_template('edit_task.html', task=task)
+
+        # Сохраняем изменения в БД
+        try:
+            conn = sqlite3.connect("datbase.db")
+            cur = conn.cursor()
+            # Обновим стандартные поля. В вашей БД ответ хранится в колонке 'anwser' (обратите внимание на опечатку).
+            # Если в вашей схеме другое имя, поправьте ниже.
+            update_sql = """
+                UPDATE tasks6
+                SET title = ?, description = ?, anwser = ?, difficulty = ?, tags = ?, source = ?
+                WHERE rowid = ?
+            """
+            cur.execute(update_sql, (title, description, answer, difficulty_int, tags, source, task_id))
+            conn.commit()
+        except Exception:
+            current_app.logger.exception("DB error while updating task")
+            flash("Ошибка при сохранении задания", "error")
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return render_template('edit_task.html', task=task)
+        
+        # Обработка изображения (сохранение / удаление)
+        # Папка для изображений по заданию
+        img_parent = os.path.join(app.config.get('UPLOAD_FOLDER', 'uploads'), "task_images", str(task_id))
+        ensure_dir(img_parent)
+
+        # Определим, есть ли колонка image_path в таблице
+        has_image_path_col = table_has_column("datbase.db", "tasks6", "image_path")
+
+        # Удаление изображения, если выбран checkbox
+        if delete_image:
+            # если в task есть image_path и файл существует — удалим
+            existing_image_path = task.get('image_path')
+            if existing_image_path and os.path.exists(existing_image_path):
+                try:
+                    os.remove(existing_image_path)
+                except Exception:
+                    current_app.logger.exception("Не удалось удалить старое изображение")
+            # очистим поле image_path в БД, если есть колонка
+            if has_image_path_col:
+                try:
+                    cur.execute("UPDATE tasks6 SET image_path = NULL WHERE rowid = ?", (task_id,))
+                    conn.commit()
+                except Exception:
+                    current_app.logger.exception("Не удалось очистить image_path")
+        
+        # Сохранение новой загрузки
+        if image_file and image_file.filename:
+            if not allowed_image(image_file.filename):
+                flash("Неверный формат изображения. Разрешены: JPG, PNG, JPEG", "error")
+                # закрываем и возвращаем
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                return render_template('edit_task.html', task=task)
+            filename = secure_filename(image_file.filename)
+            dest = os.path.join(img_parent, filename)
+            try:
+                image_file.save(dest)
+                # Попробуем сохранить путь в БД (если есть колонка)
+                if has_image_path_col:
+                    try:
+                        cur.execute("UPDATE tasks6 SET image_path = ? WHERE rowid = ?", (dest, task_id))
+                        conn.commit()
+                    except Exception:
+                        current_app.logger.exception("Не удалось записать image_path в БД")
+                flash("Задание и изображение успешно обновлены", "success")
+            except Exception:
+                current_app.logger.exception("Ошибка при сохранении изображения")
+                flash("Ошибка при сохранении изображения", "error")
+        else:
+            flash("Задание успешно обновлено", "success")
+
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+        return redirect(url_for('edit_task', task_id=task_id))
+
+    # GET — отрисовать форму с текущими значениями
+    # определим путь к изображению, если он есть (и колонка image_path присутствует)
+    image_url = None
+    if task.get('image_path') and os.path.exists(task.get('image_path')):
+        # преобразование для отображения: относительный путь от /uploads/... предполагается статически доступен
+        image_url = '/' + os.path.relpath(task.get('image_path'), start=os.getcwd()).replace(os.path.sep, '/')
+
+    return render_template('edit_task.html', task=task, image_url=image_url)
 
 if __name__ == '__main__':
     init_db()
