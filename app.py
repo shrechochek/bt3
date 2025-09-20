@@ -20,6 +20,9 @@ from flask import (
 from flask import (
     request, session, redirect, url_for, flash, render_template, current_app, abort
 )
+from flask import (
+    request, session, redirect, url_for, render_template, current_app
+)
 import fitz  # PyMuPDF
 
 app = Flask(__name__)
@@ -34,6 +37,75 @@ app.config.setdefault("MAX_CONTENT_LENGTH", 200 * 1024 * 1024)  # 200 MB limit
 ALLOWED_EXTENSIONS = {"pdf"}
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg"}
 Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
+
+DB_PATH = "datbase.db"
+
+def parse_int_or_none(value):
+    try:
+        if value is None or str(value).strip() == "":
+            return None
+        return int(value)
+    except Exception:
+        return None
+
+def search_tasks_local(params):
+    """
+    Поисковая функция, возвращает список кортежей в формате:
+    (rowid, title, description, anwser, difficulty, tags, source)
+    Параметры params: dict с ключами title, description, tag, source, min_difficulty, max_difficulty
+    """
+    where_clauses = []
+    args = []
+
+    # текстовые фильтры — используем LIKE
+    if params.get('title'):
+        where_clauses.append("title LIKE ?")
+        args.append(f"%{params['title']}%")
+    if params.get('description'):
+        where_clauses.append("description LIKE ?")
+        args.append(f"%{params['description']}%")
+    if params.get('tag'):
+        # предполагаем, что теги хранятся в поле tags как CSV или текст
+        where_clauses.append("tags LIKE ?")
+        args.append(f"%{params['tag']}%")
+    if params.get('source'):
+        where_clauses.append("source LIKE ?")
+        args.append(f"%{params['source']}%")
+
+    # числовые границы сложности
+    min_d = parse_int_or_none(params.get('min_difficulty'))
+    max_d = parse_int_or_none(params.get('max_difficulty'))
+    if min_d is not None:
+        where_clauses.append("difficulty >= ?")
+        args.append(min_d)
+    if max_d is not None:
+        where_clauses.append("difficulty <= ?")
+        args.append(max_d)
+
+    where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    sql = f"""
+        SELECT rowid, title, description, anwser, difficulty, tags, source
+        FROM tasks6
+        {where_sql}
+        ORDER BY rowid ASC
+        LIMIT 1000
+    """
+
+    rows = []
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute(sql, tuple(args))
+        rows = cur.fetchall()
+    except Exception as e:
+        current_app.logger.exception("Ошибка при поиске задач")
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    return rows
 
 def allowed_image(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXT
@@ -1769,24 +1841,47 @@ def print_test(test_id):
 
 @app.route('/search', methods=['GET'])
 def search():
+    # если хотите позволить просмотр без логина — уберите эту проверку
     if 'user_id' not in session:
         return redirect(url_for('login'))
-    
+
+    # снимаем параметры (строки оставляем как есть)
     search_params = {
-        'title': request.args.get('title', ''),
-        'description': request.args.get('description', ''),
-        'tag': request.args.get('tag', ''),
-        'source': request.args.get('source', ''),  # Добавили параметр источника
-        'min_difficulty': request.args.get('min_difficulty', ''),
-        'max_difficulty': request.args.get('max_difficulty', '')
+        'title': request.args.get('title', '').strip(),
+        'description': request.args.get('description', '').strip(),
+        'tag': request.args.get('tag', '').strip(),
+        'source': request.args.get('source', '').strip(),
+        'min_difficulty': request.args.get('min_difficulty', '').strip(),
+        'max_difficulty': request.args.get('max_difficulty', '').strip()
     }
-    
-    tasks = search_tasks(search_params)
-    return render_template('tasks.html', 
-                         tasks=tasks, 
-                         get_difficulty_color=get_difficulty_color,
-                         search_params=search_params,
-                         user=session.get('user_info'))
+
+    # Определяем, учитель ли текущий пользователь — чтобы показать кнопку редактирования
+    is_teacher = False
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM teachers WHERE user_id = ?", (session['user_id'],))
+        is_teacher = cur.fetchone() is not None
+    except Exception:
+        current_app.logger.exception("Ошибка проверки роли учителя")
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    # Выполняем поиск (используем локальную реализацию; при желании замените на вашу search_tasks)
+    tasks = search_tasks_local(search_params)
+
+    # Передаём в шаблон: tasks (список кортежей), флаги и утилиты
+    return render_template(
+        'tasks.html',
+        tasks=tasks,
+        get_difficulty_color=get_difficulty_color,  # оставляем, как у вас
+        search_params=search_params,
+        user=session.get('user_info'),
+        is_teacher=is_teacher
+    )
 
 @app.route('/edit-task/<int:task_id>', methods=['GET', 'POST'])
 def edit_task(task_id):

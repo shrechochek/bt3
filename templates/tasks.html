@@ -46,6 +46,7 @@
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            position: relative;
         }
         .task-id {
             font-weight: bold;
@@ -57,7 +58,29 @@
             color: #2c3e50;
             margin: 10px 0;
             font-weight: bold;
+            display: inline-block;
         }
+        .task-controls {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            display:flex;
+            gap:8px;
+            align-items:center;
+        }
+        .edit-btn {
+            background: #f39c12;
+            color: #fff;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            text-decoration: none;
+            display:inline-flex;
+            gap:8px;
+            align-items:center;
+        }
+        .edit-btn:hover { background:#d78b0a; }
         .task-description {
             margin: 10px 0;
             color: #34495e;
@@ -115,6 +138,16 @@
             color: #7f8c8d;
             font-size: 1.1em;
         }
+        /* маленькие иконки */
+        .icon-pencil {
+            width: 14px;
+            height: 14px;
+            display:inline-block;
+            vertical-align:middle;
+            background-repeat:no-repeat;
+            background-size:contain;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23fff"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z"/></svg>');
+        }
     </style>
 </head>
 <body>
@@ -129,7 +162,7 @@
         {% if search_params.title %}Название содержит: <strong>{{ search_params.title }}</strong><br>{% endif %}
         {% if search_params.description %}Описание содержит: <strong>{{ search_params.description }}</strong><br>{% endif %}
         {% if search_params.tag %}Тег: <strong>{{ search_params.tag }}</strong><br>{% endif %}
-        {% if search_params.source %}Источник: <strong>{{ search_params.source }}</strong><br>{% endif %}  <!-- Добавили отображение источника -->
+        {% if search_params.source %}Источник: <strong>{{ search_params.source }}</strong><br>{% endif %}
         {% if search_params.min_difficulty or search_params.max_difficulty %}
             Сложность:
             {% if search_params.min_difficulty %}<strong>от {{ search_params.min_difficulty }}</strong>{% endif %}
@@ -141,6 +174,16 @@
     {% if tasks %}
         {% for task in tasks %}
         <div class="task">
+            <div class="task-controls">
+                {% if is_teacher %}
+                <!-- кнопка редактировать (видна только учителям) -->
+                <a href="{{ url_for('edit_task', task_id=task[0]) }}" class="edit-btn" title="Редактировать задание">
+                    <span class="icon-pencil" aria-hidden="true"></span>
+                    Редактировать
+                </a>
+                {% endif %}
+            </div>
+
             <div class="task-id">ID: {{ task[0] }}</div>
             <div class="task-title">{{ task[1] }}</div>
             
