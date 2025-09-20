@@ -8,6 +8,7 @@
 
 ```terminal
 pip install flask
+pip install PyMuPDF
 ```
 
 выполните команду в терминале для клонирования репозитория:
