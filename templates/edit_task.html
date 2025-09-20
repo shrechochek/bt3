@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Редактировать задание #{{ task.id }}</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;padding:20px;background:#f5f7fb}
+    .container{max-width:800px;margin:20px auto;background:#fff;padding:20px;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.06)}
+    label{display:block;margin-top:12px;font-weight:bold}
+    input[type=text], input[type=number], textarea{width:100%;padding:10px;border:1px solid #ddd;border-radius:6px}
+    .row{display:flex;gap:12px}
+    .col{flex:1}
+    .btn{margin-top:12px;padding:10px 16px;border:none;border-radius:6px;background:#3498db;color:#fff;cursor:pointer}
+    img.preview{max-width:200px;border:1px solid #ddd;padding:6px;border-radius:6px;margin-top:8px}
+    .small{font-size:0.9em;color:#555}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Редактировать задание #{{ task.id }}</h2>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for cat, msg in messages %}
+          <div class="alert alert-{{ cat }}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="post" enctype="multipart/form-data">
+      <label for="title">Условие (title)</label>
+      <textarea id="title" name="title" required>{{ task.title or '' }}</textarea>
+
+      <label for="description">Варианты ответа / Описание (description)</label>
+      <textarea id="description" name="description" required>{{ task.description or '' }}</textarea>
+
+      <label for="answer">Ответ (anwser)</label>
+      <input id="answer" name="answer" type="text" value="{{ task.anwser or '' }}">
+
+      <label for="difficulty">Сложность (1-10)</label>
+      <input id="difficulty" name="difficulty" type="number" min="1" max="10" value="{{ task.difficulty or 1 }}">
+
+      <label for="tags">Теги</label>
+      <input id="tags" name="tags" type="text" value="{{ task.tags or '' }}">
+
+      <label for="source">Источник</label>
+      <input id="source" name="source" type="text" value="{{ task.source or '' }}">
+
+      <label>Текущее изображение</label>
+      {% if image_url %}
+        <div>
+          <img src="{{ image_url }}" class="preview" alt="image">
+        </div>
+        <label><input type="checkbox" name="delete_image"> Удалить текущее изображение</label>
+      {% else %}
+        <div class="small">Изображение не прикреплено (или путь не сохранён в БД)</div>
+      {% endif %}
+
+      <label for="image">Загрузить новое изображение (JPG/PNG)</label>
+      <input id="image" name="image" type="file" accept=".jpg,.jpeg,.png">
+
+      <button class="btn" type="submit">Сохранить изменения</button>
+    </form>
+
+    <p><a href="{{ url_for('home') }}">← Вернуться на главную</a></p>
+  </div>
+</body>
+</html>
