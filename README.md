@@ -49,4 +49,5 @@ http://127.0.0.1:9191/
 
 ```terminal
 Flask 3.1.0
+PyMuPDF 1.26.4
 ```
