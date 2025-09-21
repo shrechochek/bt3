@@ -132,6 +132,15 @@
         <h1>Поиск задач.</h1>
         <form class="search-form" action="/search" method="get">
             <div class="form-group">
+                <label>ID задачи:</label>
+                <div class="difficulty-range">
+                    <input type="number" name="min_task_id" min="1" class="form-control" placeholder="От ID">
+                    <span>-</span>
+                    <input type="number" name="max_task_id" min="1" class="form-control" placeholder="До ID">
+                </div>
+            </div>
+            
+            <div class="form-group">
                 <label for="title">Название:</label>
                 <input type="text" id="title" name="title" class="form-control" placeholder="Часть названия задачи">
             </div>

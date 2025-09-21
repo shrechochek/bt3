@@ -214,7 +214,7 @@ def parse_pdf_and_store_tasks(pdf_path, db_path, images_output_dir="images"):
     conn.close()
     return created
 
-def search_tasks(params):
+def search_tasks(params, page=1, per_page=20):
     where_clauses = []
     args = []
     if params.get('title'):
@@ -229,6 +229,19 @@ def search_tasks(params):
     if params.get('source'):
         where_clauses.append("source LIKE ?")
         args.append(f"%{params['source']}%")
+    if params.get('task_id'):
+        task_id = parse_int_or_none(params.get('task_id'))
+        if task_id is not None:
+            where_clauses.append("rowid = ?")
+            args.append(task_id)
+    min_task_id = parse_int_or_none(params.get('min_task_id'))
+    max_task_id = parse_int_or_none(params.get('max_task_id'))
+    if min_task_id is not None:
+        where_clauses.append("rowid >= ?")
+        args.append(min_task_id)
+    if max_task_id is not None:
+        where_clauses.append("rowid <= ?")
+        args.append(max_task_id)
     min_d = parse_int_or_none(params.get('min_difficulty'))
     max_d = parse_int_or_none(params.get('max_difficulty'))
     if min_d is not None:
@@ -238,15 +251,44 @@ def search_tasks(params):
         where_clauses.append("difficulty <= ?")
         args.append(max_d)
     where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
-    sql = f"SELECT rowid, title, description, anwser, difficulty, tags, source FROM tasks6 {where_sql} ORDER BY rowid ASC LIMIT 1000"
+    
+    # Calculate offset for pagination
+    offset = (page - 1) * per_page
+    
+    # First, get total count for pagination info
+    count_sql = f"SELECT COUNT(*) FROM tasks6 {where_sql}"
+    
+    # Then get the paginated results
+    sql = f"SELECT rowid, title, description, anwser, difficulty, tags, source FROM tasks6 {where_sql} ORDER BY rowid ASC LIMIT ? OFFSET ?"
+    
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
-        cur.execute(sql, args)
-        return cur.fetchall()
+        
+        # Get total count
+        cur.execute(count_sql, args)
+        total_count = cur.fetchone()[0]
+        
+        # Get paginated results
+        cur.execute(sql, args + [per_page, offset])
+        results = cur.fetchall()
+        
+        return {
+            'tasks': results,
+            'total_count': total_count,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': (total_count + per_page - 1) // per_page  # Ceiling division
+        }
     except Exception as e:
         current_app.logger.exception("Ошибка при поиске задач")
-        return []
+        return {
+            'tasks': [],
+            'total_count': 0,
+            'page': 1,
+            'per_page': per_page,
+            'total_pages': 0
+        }
     finally:
         conn.close()
 
@@ -1628,9 +1670,9 @@ def print_test(test_id):
 @app.route('/search', methods=['GET'])
 def search():
     """
-    Обновлённый маршрут /search.
+    Обновлённый маршрут /search с поддержкой пагинации.
     - собирает параметры поиска
-    - вызывает search_tasks(...) который возвращает список кортежей из БД
+    - вызывает search_tasks(...) который возвращает словарь с задачами и информацией о пагинации
     - преобразует каждую строку в dict с полями, которые ожидает tasks.html
     - добавляет список изображений (task['images'] = [{'filename': '...'}, ...])
     """
@@ -1638,10 +1680,16 @@ def search():
         return redirect(url_for('login'))
 
     # собираем параметры поиска (как у вас было)
-    search_params = {k: request.args.get(k, '').strip() for k in ['title', 'description', 'tag', 'source', 'min_difficulty', 'max_difficulty']}
+    search_params = {k: request.args.get(k, '').strip() for k in ['title', 'description', 'tag', 'source', 'min_difficulty', 'max_difficulty', 'task_id', 'min_task_id', 'max_task_id']}
+    
+    # получаем номер страницы из параметров
+    page = int(request.args.get('page', 1))
+    if page < 1:
+        page = 1
 
-    # получаем "сырые" строки из БД (кортежи)
-    raw_tasks = search_tasks(search_params)
+    # получаем данные с пагинацией
+    search_result = search_tasks(search_params, page=page, per_page=20)
+    raw_tasks = search_result['tasks']
 
     # определяем, является ли пользователь учителем (как раньше)
     conn = sqlite3.connect(DB_PATH)
@@ -1694,7 +1742,8 @@ def search():
         get_difficulty_color=get_difficulty_color,
         search_params=search_params,
         user=session.get('user_info'),
-        is_teacher=is_teacher
+        is_teacher=is_teacher,
+        pagination=search_result
     )
 
 @app.route('/edit-task/<int:task_id>', methods=['GET', 'POST'])
