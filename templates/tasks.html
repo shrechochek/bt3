@@ -144,6 +144,42 @@
             color: #7f8c8d;
             font-size: 1.1em;
         }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 30px 0;
+            gap: 10px;
+        }
+        .pagination a, .pagination span {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            text-decoration: none;
+            color: #333;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        .pagination a:hover {
+            background-color: #f5f5f5;
+        }
+        .pagination .current {
+            background-color: #3498db;
+            color: white;
+            border-color: #3498db;
+        }
+        .pagination .disabled {
+            color: #ccc;
+            cursor: not-allowed;
+        }
+        .pagination .disabled:hover {
+            background-color: transparent;
+        }
+        .pagination-info {
+            text-align: center;
+            margin: 20px 0;
+            color: #666;
+            font-size: 0.9em;
+        }
         /* маленькие иконки */
         .icon-pencil {
             width: 14px;
@@ -165,6 +201,13 @@
     {% if search_params %}
     <div class="search-summary">
         <strong>Параметры поиска:</strong><br>
+        {% if search_params.task_id %}ID задачи: <strong>{{ search_params.task_id }}</strong><br>{% endif %}
+        {% if search_params.min_task_id or search_params.max_task_id %}
+            ID задачи:
+            {% if search_params.min_task_id %}<strong>от {{ search_params.min_task_id }}</strong>{% endif %}
+            {% if search_params.max_task_id %}<strong>до {{ search_params.max_task_id }}</strong>{% endif %}
+            <br>
+        {% endif %}
         {% if search_params.title %}Название содержит: <strong>{{ search_params.title }}</strong><br>{% endif %}
         {% if search_params.description %}Описание содержит: <strong>{{ search_params.description }}</strong><br>{% endif %}
         {% if search_params.tag %}Тег: <strong>{{ search_params.tag }}</strong><br>{% endif %}
@@ -232,6 +275,51 @@
         <div class="no-tasks">
             По вашему запросу задач не найдено. Попробуйте изменить параметры поиска.
         </div>
+    {% endif %}
+
+    {% if pagination and pagination.total_pages > 1 %}
+    <div class="pagination-info">
+        Показано {{ (pagination.page - 1) * pagination.per_page + 1 }}-{{ pagination.page * pagination.per_page if pagination.page * pagination.per_page < pagination.total_count else pagination.total_count }} из {{ pagination.total_count }} задач
+    </div>
+    
+    <div class="pagination">
+        {% if pagination.page > 1 %}
+            <a href="{{ url_for('search', page=pagination.page-1, **search_params) }}">&laquo; Предыдущая</a>
+        {% else %}
+            <span class="disabled">&laquo; Предыдущая</span>
+        {% endif %}
+
+        {% set start_page = [1, pagination.page - 2] | max %}
+        {% set end_page = [pagination.total_pages, pagination.page + 2] | min %}
+        
+        {% if start_page > 1 %}
+            <a href="{{ url_for('search', page=1, **search_params) }}">1</a>
+            {% if start_page > 2 %}
+                <span>...</span>
+            {% endif %}
+        {% endif %}
+
+        {% for page_num in range(start_page, end_page + 1) %}
+            {% if page_num == pagination.page %}
+                <span class="current">{{ page_num }}</span>
+            {% else %}
+                <a href="{{ url_for('search', page=page_num, **search_params) }}">{{ page_num }}</a>
+            {% endif %}
+        {% endfor %}
+
+        {% if end_page < pagination.total_pages %}
+            {% if end_page < pagination.total_pages - 1 %}
+                <span>...</span>
+            {% endif %}
+            <a href="{{ url_for('search', page=pagination.total_pages, **search_params) }}">{{ pagination.total_pages }}</a>
+        {% endif %}
+
+        {% if pagination.page < pagination.total_pages %}
+            <a href="{{ url_for('search', page=pagination.page+1, **search_params) }}">Следующая &raquo;</a>
+        {% else %}
+            <span class="disabled">Следующая &raquo;</span>
+        {% endif %}
+    </div>
     {% endif %}
 
     <script>
