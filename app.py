@@ -1539,7 +1539,13 @@ def view_tests():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     tests = get_all_tests()
-    return render_template('tests.html', tests=tests, user=session.get('user_info'))
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM teachers WHERE user_id = ?", (session['user_id'],))
+    is_teacher = cursor.fetchone() is not None
+    conn.close()
+    return render_template('tests.html', tests=tests,
+        is_teacher=is_teacher, user=session.get('user_info'))
 
 @app.route('/images/<filename>')
 def get_image(filename):
