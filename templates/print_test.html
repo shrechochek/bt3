@@ -88,8 +88,14 @@
         <div class="q-title">Вопрос {{ loop.index }}. {{ task[1] }}</div>
         <div class="q-desc">{{ task[2] }}</div>
 
-        <!-- Большое пустое поле для ответов (будет напечатано как пустое поле) -->
-        <div class="answer-field"></div>
+        {% if task|length > 7 and task[7] == 'multiple_choice' %}
+          {% for option in task_options.get(task[0], []) %}
+            <div>O {{ option[1] }}</div>
+          {% endfor %}
+        {% else %}
+          <!-- Большое пустое поле для ответов (будет напечатано как пустое поле) -->
+          <div class="answer-field"></div>
+        {% endif %}
       </div>
     {% endfor %}
   </main>

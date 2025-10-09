@@ -595,6 +595,54 @@ def get_tasks_by_ids(task_ids):
     conn.close()
     return tasks
 
+def get_task_options(task_id):
+    """Get all options for a multiple choice task"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, option_text, is_correct, option_order FROM task_options WHERE task_id = ? ORDER BY option_order", (task_id,))
+    options = cursor.fetchall()
+    conn.close()
+    return options
+
+def save_task_options(task_id, options_data, cursor=None):
+    """Save options for a multiple choice task"""
+    if cursor is None:
+        # Create own connection if no cursor provided (for backward compatibility)
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        own_connection = True
+    else:
+        own_connection = False
+    
+    # Delete existing options
+    cursor.execute("DELETE FROM task_options WHERE task_id = ?", (task_id,))
+    
+    # Insert new options
+    for i, option in enumerate(options_data):
+        if option.get('text', '').strip():
+            cursor.execute("INSERT INTO task_options (task_id, option_text, is_correct, option_order) VALUES (?, ?, ?, ?)",
+                         (task_id, option['text'], 1 if option.get('is_correct') else 0, i))
+    
+    if own_connection:
+        conn.commit()
+        conn.close()
+
+def get_task_with_options(task_id):
+    """Get task with its options if it's a multiple choice task"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM tasks6 WHERE id = ?", (task_id,))
+    task = cursor.fetchone()
+    
+    if task:
+        cursor.execute("SELECT id, option_text, is_correct, option_order FROM task_options WHERE task_id = ? ORDER BY option_order", (task_id,))
+        options = cursor.fetchall()
+        conn.close()
+        return task, options
+    else:
+        conn.close()
+        return None, []
+
 def create_attempt(test_id, user_id, score, answers):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -625,7 +673,18 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, name TEXT, surname TEXT, password TEXT NOT NULL)")
-    cursor.execute("CREATE TABLE IF NOT EXISTS tasks6 (id INTEGER PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, anwser TEXT, difficulty INTEGER, tags TEXT, source TEXT)")
+    
+    cursor.execute("CREATE TABLE IF NOT EXISTS tasks6 (id INTEGER PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, anwser TEXT, difficulty INTEGER, tags TEXT, source TEXT, task_type TEXT DEFAULT 'text_answer')")
+    
+    # Check if task_type column exists, if not add it (for existing databases)
+    cursor.execute("PRAGMA table_info('tasks6')")
+    columns = [column[1] for column in cursor.fetchall()]
+    if 'task_type' not in columns:
+        cursor.execute("ALTER TABLE tasks6 ADD COLUMN task_type TEXT DEFAULT 'text_answer'")
+    
+    # Create options table for multiple choice questions
+    cursor.execute("CREATE TABLE IF NOT EXISTS task_options (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, option_text TEXT NOT NULL, is_correct INTEGER DEFAULT 0, option_order INTEGER DEFAULT 0, FOREIGN KEY(task_id) REFERENCES tasks6(id) ON DELETE CASCADE)")
+    
     cursor.execute("CREATE TABLE IF NOT EXISTS tests (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, attempts INTEGER NOT NULL, tasks_id TEXT NOT NULL, access_code TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, test_id INTEGER NOT NULL, user_id INTEGER NOT NULL, score INTEGER NOT NULL, answers TEXT NOT NULL, timestamp TEXT NOT NULL)")
     cursor.execute("CREATE TABLE IF NOT EXISTS teachers (user_id INTEGER PRIMARY KEY, FOREIGN KEY(user_id) REFERENCES users(id))")
@@ -1292,11 +1351,20 @@ def create_task():
         difficulty = request.form.get('difficulty', '').strip()
         tags = request.form.get('tags', '').strip()
         source = request.form.get('source', '').strip()
+        task_type = request.form.get('task_type', 'text_answer').strip()
+        
         # простая валидация
-        if not title or not description or not answer or not difficulty:
+        if not title or not difficulty:
             flash('Заполните обязательные поля', 'error')
             conn.close()
             return render_template('create_task.html', user=session.get('user_info'))
+        
+        # Additional validation for text_answer type
+        if task_type == 'text_answer' and not answer:
+            flash('Для текстового задания требуется ответ', 'error')
+            conn.close()
+            return render_template('create_task.html', user=session.get('user_info'))
+            
         try:
             difficulty_int = int(difficulty)
             if not 1 <= difficulty_int <= 10:
@@ -1305,10 +1373,55 @@ def create_task():
             flash('Сложность от 1 до 10', 'error')
             conn.close()
             return render_template('create_task.html', user=session.get('user_info'))
+        
         # создаём запись задачи
-        cursor.execute("INSERT INTO tasks6 (title, description, anwser, difficulty, tags, source) VALUES (?, ?, ?, ?, ?, ?)",
-                       (title, description, answer, difficulty_int, tags, source))
+        cursor.execute("INSERT INTO tasks6 (title, description, anwser, difficulty, tags, source, task_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                       (title, description, answer, difficulty_int, tags, source, task_type))
         task_id = cursor.lastrowid
+        
+        # Handle multiple choice options
+        if task_type == 'multiple_choice':
+            option_texts = request.form.getlist('option_text[]')
+            correct_option = request.form.get('correct_option')
+            
+            if not option_texts or len(option_texts) < 2:
+                flash('Для задания с выбором нужно минимум 2 варианта', 'error')
+                conn.rollback()
+                conn.close()
+                return render_template('create_task.html', user=session.get('user_info'))
+            
+            if not correct_option:
+                flash('Выберите правильный вариант', 'error')
+                conn.rollback()
+                conn.close()
+                return render_template('create_task.html', user=session.get('user_info'))
+            
+            try:
+                correct_index = int(correct_option)
+                if correct_index < 0 or correct_index >= len(option_texts):
+                    raise ValueError
+            except ValueError:
+                flash('Неверный выбор правильного варианта', 'error')
+                conn.rollback()
+                conn.close()
+                return render_template('create_task.html', user=session.get('user_info'))
+            
+            # Save options
+            options_data = []
+            for i, option_text in enumerate(option_texts):
+                if option_text.strip():
+                    options_data.append({
+                        'text': option_text.strip(),
+                        'is_correct': i == correct_index
+                    })
+            
+            if len(options_data) < 2:
+                flash('Нужно минимум 2 непустых варианта', 'error')
+                conn.rollback()
+                conn.close()
+                return render_template('create_task.html', user=session.get('user_info'))
+            
+            save_task_options(task_id, options_data, cursor)
 
         # собираем файлы — поддерживаем оба варианта
         uploaded = []
@@ -1454,6 +1567,14 @@ def take_test(test_id):
     if not tasks:
         flash('Задания не найдены', 'error')
         return redirect(url_for('view_tests'))
+    
+    # Get options for multiple choice tasks
+    task_options = {}
+    for task in tasks:
+        if len(task) > 7 and task[7] == 'multiple_choice':  # task_type is at index 7
+            options = get_task_options(task[0])
+            task_options[task[0]] = options
+    
     user_attempts = get_user_attempts(test_id, session['user_id'])
     attempts_left = test[2] - len(user_attempts)
     if attempts_left <= 0 and session['user_id'] != 0:
@@ -1465,16 +1586,35 @@ def take_test(test_id):
         for task in tasks:
             user_answer = request.form.get(f"answer_{task[0]}", '').strip()
             user_answers[task[0]] = user_answer
-            if user_answer.lower() == (task[3] or '').lower():
-                correct_count += 1
+            
+            # Check answer based on task type
+            if len(task) > 7 and task[7] == 'multiple_choice':
+                # For multiple choice, check if the selected option is correct
+                options = get_task_options(task[0])
+                is_correct = False
+                for option in options:
+                    if option[1] == user_answer and option[2]:  # option[1] is text, option[2] is is_correct
+                        is_correct = True
+                        break
+                if is_correct:
+                    correct_count += 1
+            else:
+                # For text answer, compare with stored answer
+                if user_answer.lower() == (task[3] or '').lower():
+                    correct_count += 1
+        
         score = int((correct_count / len(tasks)) * 100) if tasks else 0
         attempt_id = create_attempt(test_id, session['user_id'], score, user_answers)
         return redirect(url_for('test_result', attempt_id=attempt_id))
+    
     session[f'test_{test_id}_start_time'] = datetime.now().isoformat()
-    return render_template('take_test.html', test=test, tasks=tasks, get_difficulty_color=get_difficulty_color, attempts_left=attempts_left, user=session.get('user_info'))
+    return render_template('take_test.html', test=test, tasks=tasks, task_options=task_options, get_difficulty_color=get_difficulty_color, attempts_left=attempts_left, user=session.get('user_info'))
 
 @app.route('/test/result/<int:attempt_id>')
 def test_result(attempt_id):
+    if 'user_id' not in session:
+        flash('Войдите в систему', 'error')
+        return redirect(url_for('login'))
     attempt = get_attempt_by_id(attempt_id)
     if not attempt:
         flash('Результат не найден', 'error')
@@ -1483,11 +1623,27 @@ def test_result(attempt_id):
         flash('Нет доступа', 'error')
         return redirect(url_for('view_tests'))
     test = get_test_by_id(attempt[1])
+    if not test:
+        flash('Тест не найден', 'error')
+        return redirect(url_for('view_tests'))
     task_ids = [int(id_str.strip()) for id_str in test[3].split(',') if id_str.strip()]
     tasks = get_tasks_by_ids(task_ids)
+    
+    # Get options for multiple choice tasks
+    task_options = {}
+    for task in tasks:
+        if len(task) > 7 and task[7] == 'multiple_choice':  # task_type is at index 7
+            options = get_task_options(task[0])
+            task_options[task[0]] = options
+    
     import ast
-    user_answers = ast.literal_eval(attempt[4])
-    return render_template('test_result.html', test=test, attempt=attempt, tasks=tasks, user_answers=user_answers, get_difficulty_color=get_difficulty_color, user=session.get('user_info'))
+    try:
+        user_answers = ast.literal_eval(attempt[4] or '{}')
+        if not isinstance(user_answers, dict):
+            user_answers = {}
+    except Exception:
+        user_answers = {}
+    return render_template('test_result.html', test=test, attempt=attempt, tasks=tasks, task_options=task_options, user_answers=user_answers, get_difficulty_color=get_difficulty_color, user=session.get('user_info'))
 
 @app.route('/create-test', methods=['GET', 'POST'])
 def create_test_page():
@@ -1670,8 +1826,14 @@ def print_test(test_id):
         return "Тест не найден", 404
     task_ids = [int(id_str.strip()) for id_str in test[3].split(',') if id_str.strip()]
     tasks = get_tasks_by_ids(task_ids)
+    # Prepare options for multiple choice tasks
+    task_options = {}
+    for task in tasks:
+        if len(task) > 7 and task[7] == 'multiple_choice':
+            options = get_task_options(task[0])
+            task_options[task[0]] = options
     conn.close()
-    return render_template('print_test.html', test=test, tasks=tasks, user=session.get('user_info'))
+    return render_template('print_test.html', test=test, tasks=tasks, task_options=task_options, user=session.get('user_info'))
 
 @app.route('/search', methods=['GET'])
 def search():
@@ -1795,12 +1957,19 @@ def edit_task(task_id):
         difficulty = request.form.get('difficulty', '').strip()
         tags = request.form.get('tags', '').strip()
         source = request.form.get('source', '').strip()
+        task_type = request.form.get('task_type', 'text_answer').strip()
 
         # Если поля обязательны
-        if not title or not description:
-            flash("Заполните название и описание", "error")
+        if not title:
+            flash("Заполните название", "error")
             conn.close()
-            return render_template('edit_task.html', task=task, task_images=current_images)
+            return render_template('edit_task.html', task=task, task_images=current_images, task_options=[])
+
+        # Additional validation for text_answer type
+        if task_type == 'text_answer' and not answer:
+            flash("Для текстового задания требуется ответ", "error")
+            conn.close()
+            return render_template('edit_task.html', task=task, task_images=current_images, task_options=[])
 
         try:
             difficulty_int = int(difficulty)
@@ -1809,12 +1978,58 @@ def edit_task(task_id):
         except ValueError:
             flash("Сложность от 1 до 10", "error")
             conn.close()
-            return render_template('edit_task.html', task=task, task_images=current_images)
+            return render_template('edit_task.html', task=task, task_images=current_images, task_options=[])
+
+        # Handle multiple choice options validation
+        if task_type == 'multiple_choice':
+            option_texts = request.form.getlist('option_text[]')
+            correct_option = request.form.get('correct_option')
+            
+            if not option_texts or len(option_texts) < 2:
+                flash("Для задания с выбором нужно минимум 2 варианта", "error")
+                conn.close()
+                return render_template('edit_task.html', task=task, task_images=current_images, task_options=[])
+            
+            if not correct_option:
+                flash("Выберите правильный вариант", "error")
+                conn.close()
+                return render_template('edit_task.html', task=task, task_images=current_images, task_options=[])
+            
+            try:
+                correct_index = int(correct_option)
+                if correct_index < 0 or correct_index >= len(option_texts):
+                    raise ValueError
+            except ValueError:
+                flash("Неверный выбор правильного варианта", "error")
+                conn.close()
+                return render_template('edit_task.html', task=task, task_images=current_images, task_options=[])
 
         # Обновляем текстовые поля
-        cur.execute("UPDATE tasks6 SET title = ?, description = ?, anwser = ?, difficulty = ?, tags = ?, source = ? WHERE rowid = ?",
-                    (title, description, answer, difficulty_int, tags, source, task_id))
+        cur.execute("UPDATE tasks6 SET title = ?, description = ?, anwser = ?, difficulty = ?, tags = ?, source = ?, task_type = ? WHERE rowid = ?",
+                    (title, description, answer, difficulty_int, tags, source, task_type, task_id))
         conn.commit()
+        
+        # Handle multiple choice options
+        if task_type == 'multiple_choice':
+            option_texts = request.form.getlist('option_text[]')
+            correct_option = request.form.get('correct_option')
+            correct_index = int(correct_option)
+            
+            # Save options
+            options_data = []
+            for i, option_text in enumerate(option_texts):
+                if option_text.strip():
+                    options_data.append({
+                        'text': option_text.strip(),
+                        'is_correct': i == correct_index
+                    })
+            
+            if len(options_data) >= 2:
+                save_task_options(task_id, options_data, cur)
+        else:
+            # Delete existing options if switching to text_answer
+            cur.execute("DELETE FROM task_options WHERE task_id = ?", (task_id,))
+            conn.commit()
 
         # 1) Обработка удаления изображений
         # Поддерживаем: список delete_images (много) и старую checkbox delete_image
@@ -1902,13 +2117,16 @@ def edit_task(task_id):
         return redirect(url_for('edit_task', task_id=task_id))
 
     # GET — отображение формы с текущими изображениями (список имён)
+    task_options = []
+    if task.get('task_type') == 'multiple_choice':
+        task_options = get_task_options(task_id)
     conn.close()
     task_images = get_task_images(task_id)
     # image_url в старом шаблоне — первый файл (если есть), иначе None
     image_url = None
     if task_images:
         image_url = os.path.join(app.config['UPLOAD_FOLDER'], task_images[0])
-    return render_template('edit_task.html', task=task, task_images=task_images, image_url=image_url)
+    return render_template('edit_task.html', task=task, task_images=task_images, task_options=task_options, image_url=image_url)
 
 
 
@@ -1974,4 +2192,4 @@ def admin_delete_test(test_id):
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=9191)
+    app.run(host='0.0.0.0', port=9292)

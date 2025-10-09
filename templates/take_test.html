@@ -68,6 +68,33 @@
             font-size: 16px;
             margin-top: 10px;
         }
+        .options-container {
+            margin-top: 15px;
+        }
+        .option-label {
+            display: block;
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .option-label:hover {
+            background-color: #f8f9fa;
+        }
+        .option-label:has(.option-radio:checked) {
+            background-color: #e3f2fd;
+            border-color: #2196f3;
+        }
+        .option-radio {
+            margin-right: 10px;
+            transform: scale(1.2);
+        }
+        .option-text {
+            font-size: 16px;
+            color: #333;
+        }
         .task-difficulty {
             display: inline-block;
             padding: 5px 12px;
@@ -160,10 +187,26 @@
             
             <div class="task-description">{{ task[2] }}</div>
             
-            <input type="text" 
-                   name="answer_{{ task[0] }}" 
-                   class="answer-input" 
-                   placeholder="Введите ваш ответ">
+            {% if task[7] == 'multiple_choice' %}
+                <!-- Multiple choice options -->
+                <div class="options-container">
+                    {% for option in task_options.get(task[0], []) %}
+                    <label class="option-label">
+                        <input type="radio" 
+                               name="answer_{{ task[0] }}" 
+                               value="{{ option[1] }}"
+                               class="option-radio">
+                        <span class="option-text">{{ option[1] }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <!-- Text input for regular tasks -->
+                <input type="text" 
+                       name="answer_{{ task[0] }}" 
+                       class="answer-input" 
+                       placeholder="Введите ваш ответ">
+            {% endif %}
             
             <div class="task-difficulty" style="background-color: {{ get_difficulty_color(task[4]) }}">
                 Сложность: {{ task[4] }}/10
