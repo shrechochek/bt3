@@ -11,6 +11,9 @@ import tempfile
 from pathlib import Path
 import fitz  # PyMuPDF
 import json
+# import re
+# from typing import List, Dict, Union
+# from io import BytesIO
 
 app = Flask(__name__)
 app.secret_key = 'SECRET_KEY'
@@ -259,7 +262,7 @@ def search_tasks(params, page=1, per_page=20):
     count_sql = f"SELECT COUNT(*) FROM tasks6 {where_sql}"
     
     # Then get the paginated results
-    sql = f"SELECT rowid, title, description, anwser, difficulty, tags, source FROM tasks6 {where_sql} ORDER BY rowid ASC LIMIT ? OFFSET ?"
+    sql = f"SELECT rowid, title, description, anwser, difficulty, tags, source, task_type FROM tasks6 {where_sql} ORDER BY rowid ASC LIMIT ? OFFSET ?"
     
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -317,12 +320,289 @@ def hash_password(password):
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
+# def _extract_text_pdf(path_or_bytes) -> str:
+#     """
+#     Пытается извлечь текст из PDF с помощью нескольких библиотек.
+#     Возвращает строку с текстом (весь PDF).
+#     Если не удалось — бросает RuntimeError с пояснением.
+#     NOTE: для сканов нужен OCR (pytesseract); здесь OCR не реализован.
+#     """
+#     # try pdfplumber
+#     try:
+#         import pdfplumber
+#         if isinstance(path_or_bytes, (bytes, bytearray)):
+#             bio = BytesIO(path_or_bytes)
+#             pdf = pdfplumber.open(bio)
+#         else:
+#             pdf = pdfplumber.open(path_or_bytes)
+#         pages = []
+#         for p in pdf.pages:
+#             txt = p.extract_text() or ""
+#             pages.append(txt)
+#         pdf.close()
+#         return "\n\n".join(pages)
+#     except Exception:
+#         pass
+
+#     # try PyPDF2
+#     try:
+#         import PyPDF2
+#         if isinstance(path_or_bytes, (bytes, bytearray)):
+#             reader = PyPDF2.PdfReader(BytesIO(path_or_bytes))
+#         else:
+#             reader = PyPDF2.PdfReader(path_or_bytes)
+#         texts = []
+#         for p in reader.pages:
+#             try:
+#                 texts.append(p.extract_text() or "")
+#             except Exception:
+#                 texts.append("")
+#         return "\n\n".join(texts)
+#     except Exception:
+#         pass
+
+#     # try PyMuPDF (fitz)
+#     try:
+#         import fitz  # PyMuPDF
+#         if isinstance(path_or_bytes, (bytes, bytearray)):
+#             doc = fitz.open(stream=path_or_bytes, filetype="pdf")
+#         else:
+#             doc = fitz.open(path_or_bytes)
+#         texts = [page.get_text("text") for page in doc]
+#         doc.close()
+#         return "\n\n".join(texts)
+#     except Exception:
+#         pass
+
+#     raise RuntimeError("Не удалось извлечь текст из PDF — установите pdfplumber / PyPDF2 / PyMuPDF или используйте OCR для сканов.")
+
+
+# def parse_pdf_tasks(path_or_bytes) -> List[Dict[str, Union[str,int,list]]]:
+#     """
+#     Основная функция парсинга. Возвращает список задач (dict):
+#     {
+#       'number': int (встречающийся номер в PDF, если есть, или auto),
+#       'title': str (краткая первая строка вопроса / заголовок),
+#       'body': str (текст вопроса),
+#       'task_type': one of 'multiple_single', 'multiple_multi', 'matching', 'numeric', 'text',
+#       'options': [ {'id': 'A'|'1'|None, 'text': 'вариант', 'is_correct': True/False, 'order': int}, ... ],
+#       'correct_indices': [1, ...] # 1-based индексы по options (может быть пустым)
+#       'raw_answer_text': str (вся часть после "Ответ:" если есть),
+#       'raw_block': str (полный текст блока)
+#     }
+#     """
+#     text = _extract_text_pdf(path_or_bytes)
+
+#     # Pre-normalize:
+#     text = text.replace('\xa0', ' ')
+#     # Normalize common checkmark-like symbols to a consistent token ✓
+#     text = text.replace('', '✓').replace('✔', '✓').replace('◼', '■')
+#     # Ensure 'Ответ:' is on its own (splitter)
+#     text = re.sub(r'\s*Ответ:\s*', '\n\nОтвет: ', text, flags=re.IGNORECASE)
+
+#     # Detect block headers that change interpretation of following questions
+#     # e.g. "В заданиях этого блока нужно выбрать один верный ответ"
+#     # We'll scan the document and annotate current block mode
+#     block_mode_map = {
+#         'single': re.compile(r'выбрать один верный', re.IGNORECASE),
+#         'multi': re.compile(r'выбрать один или несколько верных|выбрать один или несколько', re.IGNORECASE),
+#         'matching': re.compile(r'установите соответствие|установите соответстви', re.IGNORECASE),
+#         'numeric': re.compile(r'количественные задачи|решите количественные', re.IGNORECASE),
+#     }
+
+#     # For parsing, split into lines and then into question "blocks".
+#     # We'll find lines where a question number begins: e.g. "1." or "1 . " or "1)"
+#     # To preserve context, we iterate lines and build blocks while tracking current block_mode.
+#     lines = text.splitlines()
+#     blocks = []
+#     current_block = {"mode_hint": None, "lines": []}
+#     # default mode hint None (we'll detect per question if no block hint)
+#     for line in lines:
+#         s = line.strip()
+#         if not s:
+#             # empty line -> maybe block boundary; keep as separator
+#             if current_block["lines"] and any(l.strip() for l in current_block["lines"]):
+#                 # push current block when we detect blank and next line may be header or question
+#                 current_block["lines"].append("")  # preserve break
+#             else:
+#                 # avoid multiple leading blanks
+#                 pass
+#             continue
+
+#         # check for block header matches
+#         for mode_name, pattern in block_mode_map.items():
+#             if pattern.search(s):
+#                 # start new block-hint
+#                 # push existing block if it has content
+#                 if current_block["lines"]:
+#                     blocks.append(current_block)
+#                 current_block = {"mode_hint": mode_name, "lines": [s]}
+#                 break
+#         else:
+#             # if line looks like question start: number + dot
+#             if re.match(r'^\d{1,3}\.\s', s):
+#                 # start a new question block
+#                 # if current_block contains lines and last was a question, push it
+#                 if current_block["lines"]:
+#                     blocks.append(current_block)
+#                 current_block = {"mode_hint": current_block.get("mode_hint"), "lines": [s]}
+#             else:
+#                 # append to current block
+#                 current_block["lines"].append(s)
+#     if current_block["lines"]:
+#         blocks.append(current_block)
+
+#     # Now turn blocks into question objects: many blocks will contain a single question,
+#     # for block headers where only header present, it simply propagates mode_hint to next blocks.
+#     tasks = []
+#     auto_id = 1
+#     for idx, blk in enumerate(blocks):
+#         blk_text = "\n".join(blk["lines"]).strip()
+#         # Skip pure block header that doesn't start with "N."
+#         if not re.match(r'^\d{1,3}\.\s', blk["lines"][0]) and len(blk["lines"]) <= 3:
+#             # treat as header-only block; try to pass mode hint to next block
+#             # (we already carry it in mode_hint)
+#             continue
+
+#         # Extract question number if present
+#         m = re.match(r'^\s*(\d{1,3})\.\s*(.*)', blk_text, re.DOTALL)
+#         if m:
+#             qnum = int(m.group(1))
+#             rest = m.group(2).strip()
+#         else:
+#             qnum = None
+#             rest = blk_text
+
+#         # split by "Ответ:" (if present) to get possible options/answer area
+#         parts = re.split(r'\bОтвет:\b', rest, flags=re.IGNORECASE)
+#         question_body = parts[0].strip()
+#         answer_part = parts[1].strip() if len(parts) > 1 else ''
+
+#         # collect option-like lines from BOTH question_body and answer_part
+#         candidate_lines = []
+#         for part in (question_body, answer_part):
+#             for line in part.splitlines():
+#                 s = line.strip()
+#                 if not s:
+#                     continue
+#                 # heuristics for option lines:
+#                 # - starts with "o " (latin o) or "o" bullet or "А."/"A."/"1." etc.
+#                 # - starts with a checkmark ✓
+#                 # - starts with a letter A,B,C,D (Cyrillic or Latin) optionally with ')' or '.'
+#                 if re.match(r'^[oо]\s', s) or s.startswith('o') or s.startswith('✓') or re.match(r'^[A-Za-zА-Яа-я]\W', s) or re.match(r'^[IVX]+\W', s):
+#                     candidate_lines.append(s)
+#                 # Also lines that look like "o Text" but missing space
+#                 elif re.match(r'^[oо][A-Za-zА-Яа-я0-9]', s):
+#                     candidate_lines.append(s)
+#                 # sometimes variants are written as isolated lines with no marker but multiple short lines;
+#                 # we consider lines shorter than, say, 120 chars as possible options if there are multiple of them.
+#         # If candidate_lines empty, try to detect bullet lines preceded by small bullets like "1)" etc.
+#         if not candidate_lines:
+#             # break question_body into sentences and pick short lines that look like options
+#             lb = [l.strip() for l in question_body.splitlines() if l.strip()]
+#             # Heuristic: if there are 3-6 short lines, treat them as options
+#             short_lines = [l for l in lb if len(l) < 180]
+#             if 3 <= len(short_lines) <= 8:
+#                 candidate_lines = short_lines
+
+#         # normalize and create options list
+#         options = []
+#         correct_indices = []
+#         for i, line in enumerate(candidate_lines, start=1):
+#             raw = line
+#             is_correct = '✓' in raw or '✔' in raw or raw.startswith('✓')
+#             # strip leading markers like 'o ', '✓ ', 'A. ', 'А) ', '1) ' etc.
+#             text = re.sub(r'^[oо]\s*', '', raw)                   # leading o
+#             text = re.sub(r'^[✓✔]\s*', '', text)                  # leading check
+#             text = re.sub(r'^[A-Za-zА-Яа-я0-9]+[\.\)]\s*', '', text)  # leading 'A.' or 'A)' or '1.' etc.
+#             text = text.strip()
+#             options.append({'id': None, 'text': text, 'is_correct': is_correct, 'order': i, 'raw': raw})
+#             if is_correct:
+#                 correct_indices.append(i)
+
+#         # infer task_type:
+#         task_type = 'text'
+#         # prefer block mode hint if exists
+#         mode_hint = blk.get('mode_hint')
+#         if mode_hint == 'single':
+#             task_type = 'multiple_single'
+#         elif mode_hint == 'multi':
+#             task_type = 'multiple_multi'
+#         elif mode_hint == 'matching':
+#             task_type = 'matching'
+#         elif mode_hint == 'numeric':
+#             task_type = 'numeric'
+#         else:
+#             # fallback heuristics
+#             if options:
+#                 if len(correct_indices) > 1:
+#                     task_type = 'multiple_multi'
+#                 else:
+#                     task_type = 'multiple_single'
+#             else:
+#                 # if answer_part contains predominantly digits -> numeric
+#                 if re.search(r'^\s*\d+(\,\d+)?\s*$', answer_part):
+#                     task_type = 'numeric'
+#                 else:
+#                     # detect matching by keywords
+#                     if re.search(r'соответств', blk_text, re.IGNORECASE) or re.search(r'Установите соответствие', blk_text, re.IGNORECASE):
+#                         task_type = 'matching'
+#                     else:
+#                         task_type = 'text'
+
+#         # If options list exists but none marked as correct, try to detect correct from answer_part
+#         if options and not any(o['is_correct'] for o in options):
+#             # Try to parse a line like "Ответ: o A" or "Ответ: A" or "Ответ: 3"
+#             a = answer_part.strip()
+#             if a:
+#                 # look for letter or number tokens
+#                 m = re.search(r'([A-Za-zА-Яа-я0-9]+)', a)
+#                 if m:
+#                     tok = m.group(1)
+#                     # try letter->index mapping: if options appear labelled A,B,C... try to map
+#                     # But since we stripped labels above, we can attempt:
+#                     # if tok is digit -> use as index
+#                     if tok.isdigit():
+#                         idx = int(tok)
+#                         if 1 <= idx <= len(options):
+#                             options[idx-1]['is_correct'] = True
+#                             correct_indices = [idx]
+#                     else:
+#                         # letter mapping: find option whose raw started with that letter
+#                         # e.g. "A", "Б" (Cyrillic), etc.
+#                         for i,o in enumerate(options, start=1):
+#                             if re.match(r'^\s*' + re.escape(tok) + r'[\.\)]', o['raw'], re.IGNORECASE):
+#                                 o['is_correct'] = True
+#                                 correct_indices = [i]
+#                                 break
+
+#         task = {
+#             'number': qnum or auto_id,
+#             'title': (question_body.splitlines()[0] if question_body else '')[:200],
+#             'body': question_body.strip(),
+#             'task_type': task_type,
+#             'options': options,
+#             'correct_indices': correct_indices,
+#             'raw_answer_text': answer_part.strip(),
+#             'raw_block': blk_text
+#         }
+#         tasks.append(task)
+#         auto_id += 1
+
+#     # Final normalization: set option ids A/B/C... if options present
+#     for task in tasks:
+#         if task['options']:
+#             for i,opt in enumerate(task['options'], start=0):
+#                 opt['id'] = chr(ord('A') + i)
+#     return tasks
+
+
 def parse_pdf_to_tasks_clean(pdf_path, images_output_dir="/mnt/data/parsed_images_clean", save_images=True):
     """
     Разбивает PDF на задания:
       - находит номера заданий (1., 2) и т.п.
       - отделяет текст вопроса до слова 'Ответ'
-      - извлекает варианты ответов и помечает отмеченные галочкой
+      - извлекает варианты ответов и помечает отмеченные галоч
       - извлекает изображения и привязывает их к ближайшему заданию по координатам
     Возвращает список dict'ов для каждого задания.
     Сохраняет изображения в images_output_dir (имена: <номер_задания>_1.ext, ...).
@@ -1869,8 +2149,6 @@ def search():
     # Преобразуем raw_tasks (tuple rows) в список словарей, совместимых с tasks.html
     tasks = []
     for row in raw_tasks:
-        # Ожидаем формат: (rowid, title, description, anwser, difficulty, tags, source)
-        # Но будем аккуратно: если длина другая — попытаемся извлечь по индексам безопасно.
         try:
             task_id = row[0]
             title = row[1] if len(row) > 1 else ''
@@ -1879,18 +2157,33 @@ def search():
             difficulty = row[4] if len(row) > 4 else 1
             tags = row[5] if len(row) > 5 else ''
             source = row[6] if len(row) > 6 else ''
+            task_type = row[7] if len(row) > 7 else 'text_answer'
         except Exception:
-            # если неожиданно row не индексируемый — пропускаем
             continue
 
-        # Получаем списoк имён файлов, относящихся к задаче (get_task_images должен возвращать список имён файлов)
+        # изображения
         try:
-            image_filenames = get_task_images(task_id)  # возвращает список, например ["89_1.jpg","89_2.png"]
+            image_filenames = get_task_images(task_id)
         except Exception:
             image_filenames = []
-
-        # Преобразуем в объекты, которые шаблон сможет адресовать через .filename
         images = [{'filename': fn} for fn in image_filenames]
+
+        # Варианты для multiple_choice
+        options = []
+        correct_option = None  # 1-based index
+        if task_type == 'multiple_choice':
+            raw_opts = get_task_options(task_id)  # ожидается [(id, option_text, is_correct, option_order), ...]
+            # Преобразуем и отсортируем по option_order (если есть)
+            options = [
+                {'id': o[0], 'text': o[1], 'is_correct': bool(o[2]), 'order': o[3] if len(o) > 3 else 0}
+                for o in raw_opts
+            ]
+            options.sort(key=lambda x: x.get('order', 0))
+            # найдем 1-based индекс правильного варианта (первого помеченного)
+            for idx, opt in enumerate(options, start=1):
+                if opt.get('is_correct'):
+                    correct_option = idx
+                    break
 
         tasks.append({
             'id': task_id,
@@ -1900,8 +2193,12 @@ def search():
             'difficulty': difficulty or 1,
             'tags': tags,
             'source': source,
-            'images': images
+            'images': images,
+            'task_type': task_type,
+            'options': options,
+            'correct_option': correct_option
         })
+
 
     # Передаём в шаблон
     return render_template(

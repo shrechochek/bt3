@@ -249,14 +249,35 @@
             
             <div class="task-description">{{ task.description }}</div>
             
-            {% if task.answer %}
-            <button class="show-answer-btn" onclick="toggleAnswer('answer-{{ task.id }}')">
-                Показать ответ
-            </button>
-            <div id="answer-{{ task.id }}" class="task-answer">
-                Ответ: {{ task.answer }}
-            </div>
+            {% if task.task_type == 'multiple_choice' %}
+                <div class="task-options">
+                    <ol>
+                        {% for opt in task.options %}
+                            <li>{{ opt.text }}</li>
+                        {% endfor %}
+                    </ol>
+
+                    <button class="show-answer-btn" onclick="toggleCorrect('correct-{{ task.id }}', this)">
+                        Показать ответ
+                    </button>
+
+                    <div id="correct-{{ task.id }}" class="task-answer" style="display:none;">
+                        {% if task.correct_option %}
+                            Правильный вариант: <strong>{{ task.correct_option }}</strong>
+                        {% else %}
+                            Правильный вариант не задан.
+                        {% endif %}
+                    </div>
+                </div>
+            {% elif task.answer %}
+                <button class="show-answer-btn" onclick="toggleAnswer('answer-{{ task.id }}', this)">
+                    Показать ответ
+                </button>
+                <div id="answer-{{ task.id }}" class="task-answer" style="display:none;">
+                    Ответ: {{ task.answer }}
+                </div>
             {% endif %}
+
             
             <div class="task-difficulty" style="background-color: {{ get_difficulty_color(task.difficulty) }}">
                 Сложность: {{ task.difficulty }}/10
@@ -333,6 +354,29 @@
             } else {
                 answerElement.style.display = 'block';
                 button.textContent = 'Скрыть ответ';
+            }
+        }
+        function toggleAnswer(answerId, btn) {
+            const answerElement = document.getElementById(answerId);
+            if (!answerElement) return;
+            if (answerElement.style.display === 'block') {
+                answerElement.style.display = 'none';
+                if (btn) btn.textContent = 'Показать ответ';
+            } else {
+                answerElement.style.display = 'block';
+                if (btn) btn.textContent = 'Скрыть ответ';
+            }
+        }
+
+        function toggleCorrect(correctId, btn) {
+            const el = document.getElementById(correctId);
+            if (!el) return;
+            if (el.style.display === 'block') {
+                el.style.display = 'none';
+                if (btn) btn.textContent = 'Показать ответ';
+            } else {
+                el.style.display = 'block';
+                if (btn) btn.textContent = 'Скрыть ответ';
             }
         }
     </script>
