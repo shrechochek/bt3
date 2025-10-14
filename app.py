@@ -143,7 +143,7 @@ def search_tasks(params, page=1, per_page=20):
     count_sql = f"SELECT COUNT(*) FROM tasks6 {where_sql}"
     
     # Then get the paginated results
-    sql = f"SELECT rowid, title, description, anwser, difficulty, tags, source, task_type FROM tasks6 {where_sql} ORDER BY rowid ASC LIMIT ? OFFSET ?"
+    sql = f"SELECT rowid, title, description, anwser, difficulty, tags, source, task_type, is_visible_to_students FROM tasks6 {where_sql} ORDER BY rowid ASC LIMIT ? OFFSET ?"
     
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -576,7 +576,7 @@ def init_db():
     cursor = conn.cursor()
     cursor.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, name TEXT, surname TEXT, password TEXT NOT NULL)")
     
-    cursor.execute("CREATE TABLE IF NOT EXISTS tasks6 (id INTEGER PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, anwser TEXT, difficulty INTEGER, tags TEXT, source TEXT, task_type TEXT DEFAULT 'text_answer')")
+    cursor.execute("CREATE TABLE IF NOT EXISTS tasks6 (id INTEGER PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, anwser TEXT, difficulty INTEGER, tags TEXT, source TEXT, task_type TEXT DEFAULT 'text_answer', is_visible_to_students BIT DEFAULT 1)")
     
     # Check if task_type column exists, if not add it (for existing databases)
     cursor.execute("PRAGMA table_info('tasks6')")
@@ -1254,6 +1254,13 @@ def create_task():
         tags = request.form.get('tags', '').strip()
         source = request.form.get('source', '').strip()
         task_type = request.form.get('task_type', 'text_answer').strip()
+        is_visible_to_students = request.form.get('is_visible_to_students', 'text_answer').strip()
+        
+        if(is_visible_to_students == "on"):
+            is_visible_to_students = 1
+        else:
+            is_visible_to_students = 0
+
         
         # простая валидация
         if not title or not difficulty:
@@ -1277,8 +1284,8 @@ def create_task():
             return render_template('create_task.html', user=session.get('user_info'))
         
         # создаём запись задачи
-        cursor.execute("INSERT INTO tasks6 (title, description, anwser, difficulty, tags, source, task_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                       (title, description, answer, difficulty_int, tags, source, task_type))
+        cursor.execute("INSERT INTO tasks6 (title, description, anwser, difficulty, tags, source, task_type, is_visible_to_students) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                       (title, description, answer, difficulty_int, tags, source, task_type, is_visible_to_students))
         task_id = cursor.lastrowid
         
         # Handle multiple choice options
@@ -1771,6 +1778,7 @@ def search():
     # Преобразуем raw_tasks (tuple rows) в список словарей, совместимых с tasks.html
     tasks = []
     for row in raw_tasks:
+        print(row)
         try:
             task_id = row[0]
             title = row[1] if len(row) > 1 else ''
@@ -1780,6 +1788,7 @@ def search():
             tags = row[5] if len(row) > 5 else ''
             source = row[6] if len(row) > 6 else ''
             task_type = row[7] if len(row) > 7 else 'text_answer'
+            is_visible_to_students = row[8] if len(row) > 8 else 1
         except Exception:
             continue
 
@@ -1818,7 +1827,8 @@ def search():
             'images': images,
             'task_type': task_type,
             'options': options,
-            'correct_option': correct_option
+            'correct_option': correct_option,
+            'is_visible_to_students': is_visible_to_students
         })
 
 
