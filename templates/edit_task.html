@@ -91,6 +91,9 @@
 
       <label for="source">Источник</label>
       <input id="source" name="source" type="text" value="{{ task.source or '' }}">
+      
+      <label for="is_visible_to_students">Видно ли задание ученикам:</label>
+      <input type="checkbox" id="is_visible_to_students" name="is_visible_to_students" value="1" {% if task.is_visible_to_students %}checked{% endif %}>
 
       <label>Текущие изображения</label>
       {% if task_images %}
@@ -113,7 +116,7 @@
     </form>
 
     <script>
-      let optionCount = {{ task_options|length if task.task_type == 'multiple_choice' else 2 }};
+      let optionCount = {% if task.task_type == 'multiple_choice' %}{{ task_options|length }}{% else %}2{% endif %};
       
       function toggleTaskType() {
         const taskType = document.getElementById('task_type').value;

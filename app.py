@@ -1847,36 +1847,25 @@ def search():
 def edit_task(task_id):
     """
     Редактирование задания — поддерживает множественные изображения.
-    Ожидает в форме:
-      - файлы: input name="images" (multiple) или одиночный name="image"
-      - удаление: checkboxes name="delete_images" (значение = имя файла, например "89_1.jpg")
-        также поддерживается старое поле delete_image (checkbox) — в этом случае будет удалён путь из image_path (если он есть).
-    После сохранения поле image_path в БД обновляется на первый доступный файл или NULL.
     """
     if 'user_id' not in session:
         flash("Авторизация требуется", "error")
         return redirect(url_for('login'))
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT 1 FROM teachers WHERE user_id = ?", (session['user_id'],))
-    if not cur.fetchone():
-        conn.close()
-        flash("Только учителя могут редактировать", "error")
-        return redirect(url_for('home'))
-
-    # Получаем строку задачи
+    # Получим задание
     cur.execute("SELECT rowid, * FROM tasks6 WHERE rowid = ?", (task_id,))
     row = cur.fetchone()
-    if not row:
-        conn.close()
-        abort(404)
-    # Получаем колонки и преобразуем в dict
-    cur.execute("PRAGMA table_info('tasks6')")
-    cols = [c[1] for c in cur.fetchall()]
-    task = {cols[i]: row[i+1] for i in range(len(cols))}
-    task['id'] = task_id
+    cols = [c[0] for c in cur.description] if cur.description else []
+    task = {}
+    if row:
+        task = dict(zip(cols, row))
 
-    # текущие изображения (имена файлов, без пути)
+    # Подготовим опции и текущие изображения
+    task_options = []
+    if task.get('task_type') == 'multiple_choice':
+        task_options = get_task_options(task_id)
     current_images = get_task_images(task_id)
 
     if request.method == "POST":
@@ -1887,134 +1876,96 @@ def edit_task(task_id):
         tags = request.form.get('tags', '').strip()
         source = request.form.get('source', '').strip()
         task_type = request.form.get('task_type', 'text_answer').strip()
+        is_visible_raw = request.form.get('is_visible_to_students')
+        is_visible_to_students_flag = 1 if is_visible_raw in ('on','1','true') else 0
 
-        # Если поля обязательны
         if not title:
             flash("Заполните название", "error")
             conn.close()
-            return render_template('edit_task.html', task=task, task_images=current_images, task_options=[])
+            return render_template('edit_task.html', task=task, task_images=current_images, task_options=task_options)
 
-        # Additional validation for text_answer type
         if task_type == 'text_answer' and not answer:
             flash("Для текстового задания требуется ответ", "error")
             conn.close()
-            return render_template('edit_task.html', task=task, task_images=current_images, task_options=[])
+            return render_template('edit_task.html', task=task, task_images=current_images, task_options=task_options)
 
         try:
             difficulty_int = int(difficulty)
             if not 1 <= difficulty_int <= 10:
                 raise ValueError
-        except ValueError:
-            flash("Сложность от 1 до 10", "error")
-            conn.close()
-            return render_template('edit_task.html', task=task, task_images=current_images, task_options=[])
+        except Exception:
+            difficulty_int = 1
 
-        # Handle multiple choice options validation
-        if task_type == 'multiple_choice':
-            option_texts = request.form.getlist('option_text[]')
-            correct_option = request.form.get('correct_option')
-            
-            if not option_texts or len(option_texts) < 2:
-                flash("Для задания с выбором нужно минимум 2 варианта", "error")
-                conn.close()
-                return render_template('edit_task.html', task=task, task_images=current_images, task_options=[])
-            
-            if not correct_option:
-                flash("Выберите правильный вариант", "error")
-                conn.close()
-                return render_template('edit_task.html', task=task, task_images=current_images, task_options=[])
-            
-            try:
-                correct_index = int(correct_option)
-                if correct_index < 0 or correct_index >= len(option_texts):
-                    raise ValueError
-            except ValueError:
-                flash("Неверный выбор правильного варианта", "error")
-                conn.close()
-                return render_template('edit_task.html', task=task, task_images=current_images, task_options=[])
-
-        # Обновляем текстовые поля
-        cur.execute("UPDATE tasks6 SET title = ?, description = ?, anwser = ?, difficulty = ?, tags = ?, source = ?, task_type = ? WHERE rowid = ?",
-                    (title, description, answer, difficulty_int, tags, source, task_type, task_id))
+        # Обновляем основные поля — обратите внимание на порядок параметров
+        cur.execute(
+            "UPDATE tasks6 SET title = ?, description = ?, anwser = ?, difficulty = ?, tags = ?, source = ?, task_type = ?, is_visible_to_students = ? WHERE rowid = ?",
+            (title, description, answer, difficulty_int, tags, source, task_type, is_visible_to_students_flag, task_id)
+        )
         conn.commit()
-        
-        # Handle multiple choice options
+
+        # Обработка вариантов для multiple_choice
         if task_type == 'multiple_choice':
             option_texts = request.form.getlist('option_text[]')
             correct_option = request.form.get('correct_option')
-            correct_index = int(correct_option)
-            
-            # Save options
+            if not option_texts:
+                flash("Добавьте варианты ответов", "error")
+                conn.close()
+                return render_template('edit_task.html', task=task, task_images=current_images, task_options=task_options)
+            try:
+                correct_index = int(correct_option) if correct_option is not None else None
+            except Exception:
+                correct_index = None
+
             options_data = []
-            for i, option_text in enumerate(option_texts):
-                if option_text.strip():
+            for i, ot in enumerate(option_texts):
+                if ot.strip():
                     options_data.append({
-                        'text': option_text.strip(),
-                        'is_correct': i == correct_index
+                        'text': ot.strip(),
+                        'is_correct': bool(correct_index == i),
+                        'order': i
                     })
-            
-            if len(options_data) >= 2:
-                save_task_options(task_id, options_data, cur)
-        else:
-            # Delete existing options if switching to text_answer
-            cur.execute("DELETE FROM task_options WHERE task_id = ?", (task_id,))
+            # Заменим опции в БД (реализовано в helper)
+            save_task_options(task_id, options_data, cursor=cur)
             conn.commit()
 
-        # 1) Обработка удаления изображений
-        # Поддерживаем: список delete_images (много) и старую checkbox delete_image
+        # Обработка удаления старых изображений
         delete_list = request.form.getlist('delete_images') or []
-        # если старый флаг стоял, удаляем файл, который хранится в task['image_path']
         if request.form.get('delete_image') == 'on' and task.get('image_path'):
-            try:
-                if os.path.exists(task['image_path']):
-                    os.remove(task['image_path'])
-            except Exception:
-                pass
-            # если есть колонка image_path — обнулим её
-            if 'image_path' in cols:
-                cur.execute("UPDATE tasks6 SET image_path = NULL WHERE rowid = ?", (task_id,))
-                conn.commit()
+            delete_list.append(os.path.basename(task['image_path']))
 
-        # удалим все файлы, имена которых указаны в delete_list (они — имена файлов, типа "89_1.jpg")
-        for fname in delete_list:
-            safe_name = os.path.basename(fname)  # защита
-            path = os.path.join(app.config['UPLOAD_FOLDER'], safe_name)
+        for fn in delete_list:
             try:
-                if os.path.exists(path):
-                    os.remove(path)
+                path_to_del = os.path.join(app.config['UPLOAD_FOLDER'], fn)
+                if os.path.exists(path_to_del):
+                    os.remove(path_to_del)
             except Exception:
                 pass
 
-        # 2) Обработка новых загруженных файлов
+        # Загрузка новых изображений (одиночный input 'image' или множественные 'images')
         uploaded = []
-        uploaded += request.files.getlist('images') if 'images' in request.files else []
-        single = request.files.get('image')
-        if single and single.filename:
-            uploaded.append(single)
+        if 'images' in request.files:
+            uploaded = request.files.getlist('images')
+        elif 'image' in request.files:
+            uploaded = [request.files.get('image')]
 
-        # вычисляем следующий индекс для нумерации
-        remaining_images = [p for p in get_task_images(task_id)]
-        # определить текущий максимум индекса
+        # Найдём текущий индекс (max existing index)
+        existing = get_task_images(task_id)
         max_index = 0
-        for im in remaining_images:
-            m = re.match(rf'^{re.escape(str(task_id))}_(\d+)\.(.+)$', im)
+        for ex in existing:
+            m = re.search(r"_(\d+)\.", ex)
             if m:
                 try:
-                    v = int(m.group(1))
-                    if v > max_index:
-                        max_index = v
-                except Exception:
+                    idx = int(m.group(1))
+                    if idx > max_index:
+                        max_index = idx
+                except:
                     pass
-            else:
-                # учёт старого файла "<id>.<ext>" — пометим как индекс 0, но при сохранении новых поставим 1+
-                pass
         idx = max_index + 1 if max_index >= 1 else 1
 
         for f in uploaded:
-            if not f or not f.filename:
+            if not f or not getattr(f, 'filename', None):
                 continue
             if not allowed_image(f.filename):
-                # пропускаем неподдерживаемые расширения
                 continue
             filename = secure_filename(f.filename)
             ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'jpg'
@@ -2024,38 +1975,29 @@ def edit_task(task_id):
                 f.save(dest_path)
                 idx += 1
             except Exception:
-                continue
+                pass
 
-        # 3) После удаления/загрузки — обновляем поле image_path (если колонка есть)
-        try:
-            cur.execute("PRAGMA table_info('tasks6')")
-            cols = [c[1] for c in cur.fetchall()]
-            if 'image_path' in cols:
-                imgs = get_task_images(task_id)
-                if imgs:
-                    first = os.path.join(app.config['UPLOAD_FOLDER'], imgs[0])
-                    cur.execute("UPDATE tasks6 SET image_path = ? WHERE rowid = ?", (first, task_id))
-                else:
-                    cur.execute("UPDATE tasks6 SET image_path = NULL WHERE rowid = ?", (task_id,))
-                conn.commit()
-        except Exception:
-            conn.rollback()
+        # Обновляем image_path в БД на первый доступный файл (если колонка есть)
+        cur.execute("PRAGMA table_info('tasks6')")
+        cols_info = cur.fetchall()
+        cols = [c[1] for c in cols_info]
+        if 'image_path' in cols:
+            imgs = get_task_images(task_id)
+            if imgs:
+                first = os.path.join(app.config['UPLOAD_FOLDER'], imgs[0])
+                cur.execute("UPDATE tasks6 SET image_path = ? WHERE rowid = ?", (first, task_id))
+            else:
+                cur.execute("UPDATE tasks6 SET image_path = NULL WHERE rowid = ?", (task_id,))
+            conn.commit()
 
         conn.close()
         flash("Задание обновлено", "success")
-        return redirect(url_for('edit_task', task_id=task_id))
+        return redirect(url_for('search'))
 
-    # GET — отображение формы с текущими изображениями (список имён)
-    task_options = []
-    if task.get('task_type') == 'multiple_choice':
-        task_options = get_task_options(task_id)
+    # GET
     conn.close()
-    task_images = get_task_images(task_id)
-    # image_url в старом шаблоне — первый файл (если есть), иначе None
-    image_url = None
-    if task_images:
-        image_url = os.path.join(app.config['UPLOAD_FOLDER'], task_images[0])
-    return render_template('edit_task.html', task=task, task_images=task_images, task_options=task_options, image_url=image_url)
+    return render_template('edit_task.html', task=task, task_images=current_images, task_options=task_options)
+
 
 
 
