@@ -11,6 +11,9 @@ import tempfile
 from pathlib import Path
 import fitz  # PyMuPDF
 import json
+# import re
+# from typing import List, Dict, Union
+# from io import BytesIO
 
 app = Flask(__name__)
 app.secret_key = 'SECRET_KEY'
@@ -28,191 +31,72 @@ def parse_int_or_none(value):
         return None
     
 def parse_pdf_and_store_tasks(pdf_path, db_path, images_output_dir="images"):
-    # Открываем PDF и читаем текст всех страниц
-    doc = fitz.open(pdf_path)
-    pages_text = [page.get_text("text") or "" for page in doc]
-    full_text = "\n".join(pages_text)
-    # Собираем якори номеров задач (номер, страница, координаты)
-    anchors = []
-    for p_idx, page in enumerate(doc):
-        words = page.get_text("words")
-        for w in words:
-            token = w[4].strip()
-            m = re.match(r'^(?:№\s*)?(\d{1,3})[.)]$', token)
-            if m:
-                anchors.append({'num': int(m.group(1)), 'page': p_idx,
-                                'x': (w[0]+w[2])/2, 'y': (w[1]+w[3])/2})
-        blocks = page.get_text("blocks")
-        for b in blocks:
-            textb = (b[4] or "").strip()
-            for mm in re.finditer(r'Задани(?:е|я)\s*(\d{1,3})', textb, re.IGNORECASE):
-                anchors.append({'num': int(mm.group(1)), 'page': p_idx,
-                                'x': (b[0]+b[2])/2, 'y': (b[1]+b[3])/2})
-    # Убираем дубликаты анкоров с близкими координатами
-    uniq = []
-    for a in anchors:
-        if not any(a['num']==u['num'] and a['page']==u['page'] and abs(a['y']-u['y'])<3.0 
-                   for u in uniq):
-            uniq.append(a)
-    anchors = uniq
-
-    # Извлекаем все изображения во временную папку
-    temp_img_dir = os.path.join(images_output_dir, "tmp")
-    Path(temp_img_dir).mkdir(parents=True, exist_ok=True)
-    images = []  # список словарей {'page', 'bbox', 'temp_path', 'ext'}
-    for p_idx, page in enumerate(doc):
-        page_dict = page.get_text("dict")
-        for block in page_dict.get("blocks", []):
-            if block.get("type") == 1:  # блок типа "картинка"
-                bbox = tuple(block.get("bbox", [0,0,0,0]))
-                img_obj = block.get("image")
-                image_bytes = None
-                ext = None
-                # Извлекаем байты изображения из блока
-                if isinstance(img_obj, dict) and img_obj.get("xref") is not None:
-                    try:
-                        base = doc.extract_image(img_obj["xref"])
-                        image_bytes = base["image"]
-                        ext = base["ext"]
-                    except:
-                        pass
-                elif isinstance(img_obj, (bytes, bytearray)):
-                    image_bytes = bytes(img_obj)
-                if not image_bytes:
-                    continue
-                if not ext:
-                    # если расширение не задано, определяем по сигнатуре
-                    if image_bytes.startswith(b'\x89PNG'):
-                        ext = "png"
-                    elif image_bytes.startswith(b'\xff\xd8\xff'):
-                        ext = "jpg"
-                    else:
-                        ext = "jpg"
-                # Сохраняем временно
-                tmp_name = f"p{p_idx+1}_img{len(images)+1}"
-                temp_path = os.path.join(temp_img_dir, tmp_name + "." + ext)
-                with open(temp_path, "wb") as f:
-                    f.write(image_bytes)
-                images.append({'page': p_idx, 'bbox': bbox,
-                               'temp_path': temp_path, 'ext': ext})
-
-    # Разбиваем полный текст на блоки заданий по номерам
-    starts = [(m.start(), int(m.group(1))) 
-              for m in re.finditer(r'(?m)^\s*(\d{1,3})\.\s*', full_text)]
-    if not starts:
-        # если не нашли по всему тексту, попробуем постранично
-        cursor = 0
-        for txt in pages_text:
-            for m in re.finditer(r'(?m)^\s*(\d{1,3})\.\s*', txt):
-                starts.append((cursor + m.start(), int(m.group(1))))
-            cursor += len(txt) + 1
-    starts.sort()
-    task_blocks = []
-    for i, (pos, num) in enumerate(starts):
-        start = pos
-        end = starts[i+1][0] if i+1 < len(starts) else len(full_text)
-        block = full_text[start:end].strip()
-        block = re.sub(r'^\s*\d{1,3}\.\s*', '', block, count=1)
-        task_blocks.append({'num': num, 'text': block})
-
-    # Парсим каждый блок: вопрос и варианты
-    parsed = []
-    for tb in task_blocks:
-        txt = tb['text']
-        m_ans = re.search(r'(?mi)\bОтвет\b[:\s]*', txt)
-        if m_ans:
-            question = txt[:m_ans.start()].strip()
-            answers_text = txt[m_ans.end():].strip()
-        else:
-            # нет «Ответ:» — разделим по пустой строке или весь блок — вопрос без вариантов
-            parts = re.split(r'\n\s*\n', txt, maxsplit=1)
-            question = parts[0].strip()
-            answers_text = parts[1].strip() if len(parts)>1 else ""
-        # Очищаем вопрос от лишних постраничных номеров
-        question = re.sub(r'\n+\d{1,3}\s*$', '', question).strip()
-        # Разбираем варианты
-        answers = []
-        correct = []
-        if answers_text:
-            for line in answers_text.splitlines():
-                raw = line.strip()
-                if not raw or re.match(r'^\d{1,3}$', raw):
-                    continue
-                # Удаляем маркеры (пример функции clean_option_line)
-                is_correct = bool(re.search(r'[✓✔]', raw))
-                line_clean = re.sub(r'[✓✔]', '', raw)
-                line_clean = re.sub(r'^[\s\-–—\*\u2022\u25CF]+', '', line_clean)
-                line_clean = re.sub(r'^[A-Za-zА-Яа-я]\s*[\.\)]\s*', '', line_clean)
-                line_clean = re.sub(r'^\d{1,3}\s*[\.\)]\s*', '', line_clean).strip()
-                if line_clean:
-                    answers.append(line_clean)
-                    if is_correct:
-                        correct.append(line_clean)
-        parsed.append({'num': tb['num'], 'question': question,
-                       'answers': answers, 'correct': correct, 'images': []})
-
-    # Привязка картинок к заданиям по координатам
-    def img_mid_y(bbox): return (bbox[1] + bbox[3]) / 2.0
-    num_to_idx = {p['num']: i for i,p in enumerate(parsed) if p['num'] is not None}
-    for img in images:
-        img_page = img['page']
-        mid_y = img_mid_y(img['bbox'])
-        # ищем ближайший анкор
-        best_anchor = None
-        best_score = None
-        for anc in anchors:
-            score = abs(img_page - anc['page'])*10000 + abs(mid_y - anc['y'])
-            # Если картинка значительно выше анкера, добавляем штраф
-            if mid_y + 20 < anc['y']:
-                score += 2000
-            if best_score is None or score < best_score:
-                best_score = score
-                best_anchor = anc
-        assigned = best_anchor['num'] if best_anchor else None
-        if assigned in num_to_idx:
-            idx = num_to_idx[assigned]
-        else:
-            idx = 0  # fallback к первому заданию
-        task = parsed[idx]
-        # Сохраняем картинку в выходную папку images_output_dir
-        existing = task['images']
-        out_base = f"{task['num']}_{len(existing)+1}"
-        dest_path = save_image_bytes(open(img['temp_path'],'rb').read(),
-                                     images_output_dir, out_base, img['ext'])
-        task['images'].append(os.path.basename(dest_path))
-
-    # Очищаем временную папку картинок
-    for f in glob.glob(os.path.join(temp_img_dir, "*")):
-        try: os.remove(f)
-        except: pass
-    try: os.rmdir(temp_img_dir)
-    except: pass
-
-    # Сохраняем задания в БД
+    """
+    Парсит PDF, определяет типы заданий, сохраняет их в БД.
+    - Вызывает parse_pdf_to_tasks_clean для получения списка заданий.
+    - Сохраняет задания в таблицу tasks6 (указывая task_type).
+    - Для задания multiple_choice сохраняет варианты в task_options.
+    Возвращает список созданных записей с полями task_id и номером задания.
+    """
+    # Парсим PDF и получаем задания
+    parsed_tasks = parse_pdf_to_tasks_clean(pdf_path, images_output_dir=images_output_dir)
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     created = []
-    for t in parsed:
-        title = f"Задание {t['num']}" if t.get('num') else "Задание"
-        description = t['question']
-        # Сохраняем список ответов/правильный можно по желанию
-        # Например, сохраняем правильный ответ в колонку 'anwser'
-        answer_text = t['correct'][0] if t['correct'] else ""
-        cur.execute("INSERT INTO tasks6 (title, description, anwser, difficulty, tags, source) VALUES (?, ?, ?, ?, ?, ?)",
-                    (title, description, answer_text, 1, "", os.path.basename(pdf_path)))
+
+    for t in parsed_tasks:
+        # Формируем поля для вставки
+        number = t.get('number')
+        title = f"Задание {number}" if number is not None else "Задание"
+        description = t['question_text']
+        # Колонка 'anwser' - правильный ответ. Для multiple_choice можно оставить пустой.
+        if t['task_type'] == 'multiple_choice':
+            answer_text = ""
+        else:
+            answer_text = t['correct_answer'] or ""
+        difficulty = 1
+        tags = ""
+        source = os.path.basename(pdf_path)
+
+        # Вставляем задачу в БД (включаем task_type)
+        cur.execute(
+            "INSERT INTO tasks6 (title, description, anwser, difficulty, tags, source, task_type) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (title, description, answer_text, difficulty, tags, source, t['task_type'])
+        )
         task_id = cur.lastrowid
-        # Перемещаем файлы изображений в папку images/, присваивая им имена task_id_N.jpg
+
+        # Сохраняем изображения: переименовываем в соответствии с task_id
         for idx, imgfile in enumerate(t['images'], start=1):
             src = os.path.join(images_output_dir, imgfile)
             if os.path.exists(src):
                 ext = os.path.splitext(src)[1] or ".jpg"
                 dest = os.path.join(images_output_dir, f"{task_id}_{idx}{ext}")
                 os.replace(src, dest)
-        created.append({"task_id": task_id, "question": description,
-                        "answers": t['answers'], "correct": t['correct']})
+
+        # Если multiple_choice, вставляем варианты в task_options
+        if t['task_type'] == 'multiple_choice':
+            options = t.get('options', [])
+            correct_raw = t.get('correct_answer', "")
+            # Если несколько правильных, разделены ";", разбиваем
+            if ";" in correct_raw:
+                correct_list = [ans.strip() for ans in correct_raw.split(";") if ans.strip()]
+            else:
+                correct_list = [correct_raw] if correct_raw else []
+            # Сохраняем опции
+            options_data = []
+            for opt_text in options:
+                is_corr = opt_text in correct_list
+                options_data.append({'text': opt_text, 'is_correct': is_corr})
+            # Сохраняем в БД
+            save_task_options(task_id, options_data, cursor=cur)
+
+        created.append({"task_id": task_id, "number": number})
+
     conn.commit()
     conn.close()
     return created
+
 
 def search_tasks(params, page=1, per_page=20):
     where_clauses = []
@@ -259,7 +143,7 @@ def search_tasks(params, page=1, per_page=20):
     count_sql = f"SELECT COUNT(*) FROM tasks6 {where_sql}"
     
     # Then get the paginated results
-    sql = f"SELECT rowid, title, description, anwser, difficulty, tags, source FROM tasks6 {where_sql} ORDER BY rowid ASC LIMIT ? OFFSET ?"
+    sql = f"SELECT rowid, title, description, anwser, difficulty, tags, source, task_type, is_visible_to_students FROM tasks6 {where_sql} ORDER BY rowid ASC LIMIT ? OFFSET ?"
     
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -320,45 +204,48 @@ def allowed_file(filename: str) -> bool:
 def parse_pdf_to_tasks_clean(pdf_path, images_output_dir="/mnt/data/parsed_images_clean", save_images=True):
     """
     Разбивает PDF на задания:
-      - находит номера заданий (1., 2) и т.п.
+      - находит номера заданий
       - отделяет текст вопроса до слова 'Ответ'
-      - извлекает варианты ответов и помечает отмеченные галочкой
-      - извлекает изображения и привязывает их к ближайшему заданию по координатам
-    Возвращает список dict'ов для каждого задания.
+      - извлекает варианты ответов и помечает отмеченные галочками
+      - определяет тип задания: 'multiple_choice' или 'open_answer'
+      - извлекает изображения и привязывает их к заданиям
+    Возвращает список dict'ов для каждого задания с полями:
+      'number'        - номер задания (целое или None)
+      'question_text' - текст вопроса (строка)
+      'options'       - список вариантов ответа (список строк, может быть пустым)
+      'correct_answer'- правильный ответ (строка, первая из отмеченных или пустая)
+      'task_type'     - тип задания ('multiple_choice' или 'open_answer')
+      'images'        - список имён файлов изображений, связанных с заданием
     Сохраняет изображения в images_output_dir (имена: <номер_задания>_1.ext, ...).
     """
     doc = fitz.open(pdf_path)
     pages_text = [doc[p].get_text("text") or "" for p in range(len(doc))]
     full_text = "\n".join(pages_text)
 
-    # 1) anchors: позиции, где в тексте встречается номер задания (по словам на страницах)
+    # 1) Найдём номера заданий (anchors) для привязки изображений (не для деления текста)
     anchors = []
     for p_idx in range(len(doc)):
-        words = doc[p_idx].get_text("words")  # x0,y0,x1,y1,word,...
+        words = doc[p_idx].get_text("words")
         for w in words:
             token = w[4].strip()
             m = re.match(r'^(?:№\s*)?(\d{1,3})([.)\uFF09]?)$', token)
             if m:
-                anchors.append({'num': int(m.group(1)), 'page': p_idx, 'x': (w[0]+w[2])/2.0, 'y': (w[1]+w[3])/2.0})
-        # также попытки поймать строки вроде "Задание 12"
+                anchors.append({'num': int(m.group(1)), 'page': p_idx,
+                                'x': (w[0]+w[2])/2.0, 'y': (w[1]+w[3])/2.0})
         blocks = doc[p_idx].get_text("blocks")
         for b in blocks:
             textb = (b[4] or "").strip()
             for mm in re.finditer(r'Задани(?:е|я)\s*(\d{1,3})', textb, re.IGNORECASE):
-                anchors.append({'num': int(mm.group(1)), 'page': p_idx, 'x': (b[0]+b[2])/2.0, 'y': (b[1]+b[3])/2.0})
-
-    # deduplicate anchors (по num,page,y близко)
+                anchors.append({'num': int(mm.group(1)), 'page': p_idx,
+                                'x': (b[0]+b[2])/2.0, 'y': (b[1]+b[3])/2.0})
+    # Убираем дубликаты анкоров
     uniq = []
     for a in anchors:
-        dup = False
-        for u in uniq:
-            if u['num']==a['num'] and u['page']==a['page'] and abs(u['y']-a['y'])<3.0:
-                dup = True; break
-        if not dup:
+        if not any(u['num']==a['num'] and u['page']==a['page'] and abs(u['y']-a['y'])<3.0 for u in uniq):
             uniq.append(a)
     anchors = uniq
 
-    # 2) Извлечь изображения (временно в подпапку), собрать bbox и страницу
+    # 2) Извлечение изображений в временную папку
     images_temp_dir = os.path.join(images_output_dir, "tmp")
     Path(images_temp_dir).mkdir(parents=True, exist_ok=True)
     images = []
@@ -378,7 +265,7 @@ def parse_pdf_to_tasks_clean(pdf_path, images_output_dir="/mnt/data/parsed_image
                             base = doc.extract_image(xref)
                             image_bytes = base.get("image")
                             ext = base.get("ext")
-                        except Exception:
+                        except:
                             image_bytes = None
                     else:
                         possible = img_obj.get("image")
@@ -391,7 +278,7 @@ def parse_pdf_to_tasks_clean(pdf_path, images_output_dir="/mnt/data/parsed_image
                         base = doc.extract_image(img_obj)
                         image_bytes = base.get("image")
                         ext = base.get("ext")
-                    except Exception:
+                    except:
                         image_bytes = None
                 if not image_bytes:
                     continue
@@ -401,31 +288,33 @@ def parse_pdf_to_tasks_clean(pdf_path, images_output_dir="/mnt/data/parsed_image
                 temp_path = save_image_bytes(image_bytes, images_temp_dir, temp_base, ext)
                 images.append({'temp_path': temp_path, 'page': p_idx, 'bbox': bbox, 'ext': ext})
 
-    # 3) Разбивка текста на блоки заданий по номерам "N." или "N)"
+    # 3) Разбивка текста на блоки заданий по номерам "N." или подобным
     starts = [(m.start(), int(m.group(1))) for m in re.finditer(r'(?m)^\s*(\d{1,3})[.)]\s*', full_text)]
     tasks_blocks = []
     if not starts:
-        # fallback постранично
         cursor = 0
         for p_idx, txt in enumerate(pages_text):
             for m in re.finditer(r'(?m)^\s*(\d{1,3})[.)]\s*', txt):
                 starts.append((cursor + m.start(), int(m.group(1))))
             cursor += len(txt) + 1
+    starts.sort()
     if starts:
-        for i,(pos,num) in enumerate(starts):
+        for i, (pos, num) in enumerate(starts):
             start_pos = pos
             end_pos = starts[i+1][0] if i+1 < len(starts) else len(full_text)
-            block = full_text[start_pos:end_pos].strip()
-            # убираем ведущую "N." в начале блока
-            block = re.sub(r'^\s*\d{1,3}[.)]\s*', '', block, count=1)
+            block_text = full_text[start_pos:end_pos].strip()
+            # Убираем "N." в начале
+            block_text = re.sub(r'^\s*\d{1,3}[.)]\s*', '', block_text, count=1)
+            # Ищем метку блока
             back = full_text[max(0, start_pos-300):start_pos]
             mbl = re.search(r'Блок\s*№\s*(\d+)', back)
             block_label = f"Блок №{mbl.group(1)}" if mbl else None
-            tasks_blocks.append({'num': num, 'start': start_pos, 'end': end_pos, 'text': block, 'block_label': block_label})
+            tasks_blocks.append({'number': num, 'text': block_text, 'block_label': block_label})
     else:
-        tasks_blocks.append({'num': None, 'start':0, 'end':len(full_text), 'text': full_text, 'block_label': None})
+        # Если не нашли структуру, всё как один блок
+        tasks_blocks.append({'number': None, 'text': full_text, 'block_label': None})
 
-    # 4) Для каждого блока выделяем вопрос (до 'Ответ') и варианты (после)
+    # 4) Разбор каждого блока: вопрос и варианты ответа
     parsed = []
     for tb in tasks_blocks:
         txt = tb['text']
@@ -439,67 +328,80 @@ def parse_pdf_to_tasks_clean(pdf_path, images_output_dir="/mnt/data/parsed_image
                 q_text, a_text = parts[0].strip(), parts[1].strip()
             else:
                 q_text, a_text = txt.strip(), ""
-        # очистка вопроса от лишних цифр в конце (страницы) и пробелов
+        # Удаляем постраничные номера в конце вопроса
         q_text = re.sub(r'\n+\d{1,3}\s*$', '', q_text).strip()
-        # варианты: по строкам, чистим маркеры
+
         answers = []
         correct = []
         if a_text:
             for line in a_text.splitlines():
                 raw = line.strip()
-                if not raw: 
+                if not raw or re.match(r'^\d{1,3}$', raw):
                     continue
-                if re.match(r'^\d{1,3}$', raw):  # вероятно номер страницы
-                    continue
-                cleaned, is_correct = clean_option_line(raw)
+                cleaned, is_corr = clean_option_line(raw)
                 if cleaned:
                     answers.append(cleaned)
-                    if is_correct:
+                    if is_corr:
                         correct.append(cleaned)
+
+        # Определяем тип задания и правильный ответ
+        if answers:
+            task_type = 'multiple_choice'
+            if correct:
+                # Если несколько правильных, соединяем в строку через "; "
+                correct_answer = correct[0] if len(correct) == 1 else "; ".join(correct)
+            else:
+                correct_answer = ""  # нет явно отмеченных вариантов
+        else:
+            task_type = 'open_answer'
+            correct_answer = ""  # нет вариантов ответа
+
         parsed.append({
-            'block': tb.get('block_label'),
-            'number': tb.get('num'),
-            'question': q_text,
-            'answers_text': a_text,
-            'answers': answers,
-            'correct': correct,
+            'number': tb.get('number'),
+            'question_text': q_text,
+            'options': answers,
+            'correct_answer': correct_answer,
+            'task_type': task_type,
             'images': []
         })
 
-    # 5) Привязка изображений к заданиям: ищем ближайший anchor и назначаем изображение соответствующему номеру задания
-    num_to_index = {p['number']: i for i,p in enumerate(parsed) if p['number'] is not None}
-    def img_mid_y(bbox): return (bbox[1] + bbox[3]) / 2.0
+    # 5) Привязка изображений к заданиям по ближайшему анкору
+    num_to_index = {p['number']: idx for idx,p in enumerate(parsed) if p['number'] is not None}
+    def img_mid_y(bbox): 
+        return (bbox[1] + bbox[3]) / 2.0
     for img in images:
-        best = None; best_score = None
-        for a in anchors:
-            s = abs(img['page'] - a['page']) * 10000 + abs(img_mid_y(img['bbox']) - a['y'])
-            if img_mid_y(img['bbox']) + 20 < a['y']:
-                s += 2000
-            if best_score is None or s < best_score:
-                best_score = s; best = a
-        assigned_num = best['num'] if best else None
+        best_anchor = None
+        best_score = None
+        midy = img_mid_y(img['bbox'])
+        for anc in anchors:
+            score = abs(img['page'] - anc['page'])*10000 + abs(midy - anc['y'])
+            if midy + 20 < anc['y']:
+                score += 2000
+            if best_score is None or score < best_score:
+                best_score = score
+                best_anchor = anc
+        assigned_num = best_anchor['num'] if best_anchor else None
         if assigned_num in num_to_index:
             idx = num_to_index[assigned_num]
         else:
-            # fallback: просто прикрепим к первому (если не нашли)
-            idx = 0
+            idx = 0  # если не нашли подходящий анкор, прикрепляем к первому
         tasknum = parsed[idx]['number'] if parsed[idx]['number'] is not None else f"i{idx+1}"
         existing = parsed[idx]['images']
         outbase = f"{tasknum}_{len(existing)+1}"
+        # Сохраняем изображение в images_output_dir
         outpath = save_image_bytes(open(img['temp_path'],'rb').read(), images_output_dir, outbase, img['ext'])
         parsed[idx]['images'].append(os.path.basename(outpath))
 
-    # Cleanup временной папки
+    # Удаляем временную папку с изображениями
     try:
         for f in glob.glob(os.path.join(images_temp_dir, "*")):
-            try: os.remove(f)
-            except: pass
-        try: os.rmdir(images_temp_dir)
-        except: pass
+            os.remove(f)
+        os.rmdir(images_temp_dir)
     except:
         pass
 
     return parsed
+
 
 def guess_ext_from_bytes(b: bytes) -> str:
     if b.startswith(b'\x89PNG\r\n\x1a\n'): return "png"
@@ -595,6 +497,54 @@ def get_tasks_by_ids(task_ids):
     conn.close()
     return tasks
 
+def get_task_options(task_id):
+    """Get all options for a multiple choice task"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, option_text, is_correct, option_order FROM task_options WHERE task_id = ? ORDER BY option_order", (task_id,))
+    options = cursor.fetchall()
+    conn.close()
+    return options
+
+def save_task_options(task_id, options_data, cursor=None):
+    """Save options for a multiple choice task"""
+    if cursor is None:
+        # Create own connection if no cursor provided (for backward compatibility)
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        own_connection = True
+    else:
+        own_connection = False
+    
+    # Delete existing options
+    cursor.execute("DELETE FROM task_options WHERE task_id = ?", (task_id,))
+    
+    # Insert new options
+    for i, option in enumerate(options_data):
+        if option.get('text', '').strip():
+            cursor.execute("INSERT INTO task_options (task_id, option_text, is_correct, option_order) VALUES (?, ?, ?, ?)",
+                         (task_id, option['text'], 1 if option.get('is_correct') else 0, i))
+    
+    if own_connection:
+        conn.commit()
+        conn.close()
+
+def get_task_with_options(task_id):
+    """Get task with its options if it's a multiple choice task"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM tasks6 WHERE id = ?", (task_id,))
+    task = cursor.fetchone()
+    
+    if task:
+        cursor.execute("SELECT id, option_text, is_correct, option_order FROM task_options WHERE task_id = ? ORDER BY option_order", (task_id,))
+        options = cursor.fetchall()
+        conn.close()
+        return task, options
+    else:
+        conn.close()
+        return None, []
+
 def create_attempt(test_id, user_id, score, answers):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -625,7 +575,18 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, name TEXT, surname TEXT, password TEXT NOT NULL)")
-    cursor.execute("CREATE TABLE IF NOT EXISTS tasks6 (id INTEGER PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, anwser TEXT, difficulty INTEGER, tags TEXT, source TEXT)")
+    
+    cursor.execute("CREATE TABLE IF NOT EXISTS tasks6 (id INTEGER PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, anwser TEXT, difficulty INTEGER, tags TEXT, source TEXT, task_type TEXT DEFAULT 'text_answer', is_visible_to_students BIT DEFAULT 1)")
+    
+    # Check if task_type column exists, if not add it (for existing databases)
+    cursor.execute("PRAGMA table_info('tasks6')")
+    columns = [column[1] for column in cursor.fetchall()]
+    if 'task_type' not in columns:
+        cursor.execute("ALTER TABLE tasks6 ADD COLUMN task_type TEXT DEFAULT 'text_answer'")
+    
+    # Create options table for multiple choice questions
+    cursor.execute("CREATE TABLE IF NOT EXISTS task_options (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, option_text TEXT NOT NULL, is_correct INTEGER DEFAULT 0, option_order INTEGER DEFAULT 0, FOREIGN KEY(task_id) REFERENCES tasks6(id) ON DELETE CASCADE)")
+    
     cursor.execute("CREATE TABLE IF NOT EXISTS tests (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, attempts INTEGER NOT NULL, tasks_id TEXT NOT NULL, access_code TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, test_id INTEGER NOT NULL, user_id INTEGER NOT NULL, score INTEGER NOT NULL, answers TEXT NOT NULL, timestamp TEXT NOT NULL)")
     cursor.execute("CREATE TABLE IF NOT EXISTS teachers (user_id INTEGER PRIMARY KEY, FOREIGN KEY(user_id) REFERENCES users(id))")
@@ -1292,11 +1253,27 @@ def create_task():
         difficulty = request.form.get('difficulty', '').strip()
         tags = request.form.get('tags', '').strip()
         source = request.form.get('source', '').strip()
+        task_type = request.form.get('task_type', 'text_answer').strip()
+        is_visible_to_students = request.form.get('is_visible_to_students', 'text_answer').strip()
+        
+        if(is_visible_to_students == "on"):
+            is_visible_to_students = 1
+        else:
+            is_visible_to_students = 0
+
+        
         # простая валидация
-        if not title or not description or not answer or not difficulty:
+        if not title or not difficulty:
             flash('Заполните обязательные поля', 'error')
             conn.close()
             return render_template('create_task.html', user=session.get('user_info'))
+        
+        # Additional validation for text_answer type
+        if task_type == 'text_answer' and not answer:
+            flash('Для текстового задания требуется ответ', 'error')
+            conn.close()
+            return render_template('create_task.html', user=session.get('user_info'))
+            
         try:
             difficulty_int = int(difficulty)
             if not 1 <= difficulty_int <= 10:
@@ -1305,10 +1282,55 @@ def create_task():
             flash('Сложность от 1 до 10', 'error')
             conn.close()
             return render_template('create_task.html', user=session.get('user_info'))
+        
         # создаём запись задачи
-        cursor.execute("INSERT INTO tasks6 (title, description, anwser, difficulty, tags, source) VALUES (?, ?, ?, ?, ?, ?)",
-                       (title, description, answer, difficulty_int, tags, source))
+        cursor.execute("INSERT INTO tasks6 (title, description, anwser, difficulty, tags, source, task_type, is_visible_to_students) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                       (title, description, answer, difficulty_int, tags, source, task_type, is_visible_to_students))
         task_id = cursor.lastrowid
+        
+        # Handle multiple choice options
+        if task_type == 'multiple_choice':
+            option_texts = request.form.getlist('option_text[]')
+            correct_option = request.form.get('correct_option')
+            
+            if not option_texts or len(option_texts) < 2:
+                flash('Для задания с выбором нужно минимум 2 варианта', 'error')
+                conn.rollback()
+                conn.close()
+                return render_template('create_task.html', user=session.get('user_info'))
+            
+            if not correct_option:
+                flash('Выберите правильный вариант', 'error')
+                conn.rollback()
+                conn.close()
+                return render_template('create_task.html', user=session.get('user_info'))
+            
+            try:
+                correct_index = int(correct_option)
+                if correct_index < 0 or correct_index >= len(option_texts):
+                    raise ValueError
+            except ValueError:
+                flash('Неверный выбор правильного варианта', 'error')
+                conn.rollback()
+                conn.close()
+                return render_template('create_task.html', user=session.get('user_info'))
+            
+            # Save options
+            options_data = []
+            for i, option_text in enumerate(option_texts):
+                if option_text.strip():
+                    options_data.append({
+                        'text': option_text.strip(),
+                        'is_correct': i == correct_index
+                    })
+            
+            if len(options_data) < 2:
+                flash('Нужно минимум 2 непустых варианта', 'error')
+                conn.rollback()
+                conn.close()
+                return render_template('create_task.html', user=session.get('user_info'))
+            
+            save_task_options(task_id, options_data, cursor)
 
         # собираем файлы — поддерживаем оба варианта
         uploaded = []
@@ -1454,6 +1476,14 @@ def take_test(test_id):
     if not tasks:
         flash('Задания не найдены', 'error')
         return redirect(url_for('view_tests'))
+    
+    # Get options for multiple choice tasks
+    task_options = {}
+    for task in tasks:
+        if len(task) > 7 and task[7] == 'multiple_choice':  # task_type is at index 7
+            options = get_task_options(task[0])
+            task_options[task[0]] = options
+    
     user_attempts = get_user_attempts(test_id, session['user_id'])
     attempts_left = test[2] - len(user_attempts)
     if attempts_left <= 0 and session['user_id'] != 0:
@@ -1465,16 +1495,35 @@ def take_test(test_id):
         for task in tasks:
             user_answer = request.form.get(f"answer_{task[0]}", '').strip()
             user_answers[task[0]] = user_answer
-            if user_answer.lower() == (task[3] or '').lower():
-                correct_count += 1
+            
+            # Check answer based on task type
+            if len(task) > 7 and task[7] == 'multiple_choice':
+                # For multiple choice, check if the selected option is correct
+                options = get_task_options(task[0])
+                is_correct = False
+                for option in options:
+                    if option[1] == user_answer and option[2]:  # option[1] is text, option[2] is is_correct
+                        is_correct = True
+                        break
+                if is_correct:
+                    correct_count += 1
+            else:
+                # For text answer, compare with stored answer
+                if user_answer.lower() == (task[3] or '').lower():
+                    correct_count += 1
+        
         score = int((correct_count / len(tasks)) * 100) if tasks else 0
         attempt_id = create_attempt(test_id, session['user_id'], score, user_answers)
         return redirect(url_for('test_result', attempt_id=attempt_id))
+    
     session[f'test_{test_id}_start_time'] = datetime.now().isoformat()
-    return render_template('take_test.html', test=test, tasks=tasks, get_difficulty_color=get_difficulty_color, attempts_left=attempts_left, user=session.get('user_info'))
+    return render_template('take_test.html', test=test, tasks=tasks, task_options=task_options, get_difficulty_color=get_difficulty_color, attempts_left=attempts_left, user=session.get('user_info'))
 
 @app.route('/test/result/<int:attempt_id>')
 def test_result(attempt_id):
+    if 'user_id' not in session:
+        flash('Войдите в систему', 'error')
+        return redirect(url_for('login'))
     attempt = get_attempt_by_id(attempt_id)
     if not attempt:
         flash('Результат не найден', 'error')
@@ -1483,11 +1532,27 @@ def test_result(attempt_id):
         flash('Нет доступа', 'error')
         return redirect(url_for('view_tests'))
     test = get_test_by_id(attempt[1])
+    if not test:
+        flash('Тест не найден', 'error')
+        return redirect(url_for('view_tests'))
     task_ids = [int(id_str.strip()) for id_str in test[3].split(',') if id_str.strip()]
     tasks = get_tasks_by_ids(task_ids)
+    
+    # Get options for multiple choice tasks
+    task_options = {}
+    for task in tasks:
+        if len(task) > 7 and task[7] == 'multiple_choice':  # task_type is at index 7
+            options = get_task_options(task[0])
+            task_options[task[0]] = options
+    
     import ast
-    user_answers = ast.literal_eval(attempt[4])
-    return render_template('test_result.html', test=test, attempt=attempt, tasks=tasks, user_answers=user_answers, get_difficulty_color=get_difficulty_color, user=session.get('user_info'))
+    try:
+        user_answers = ast.literal_eval(attempt[4] or '{}')
+        if not isinstance(user_answers, dict):
+            user_answers = {}
+    except Exception:
+        user_answers = {}
+    return render_template('test_result.html', test=test, attempt=attempt, tasks=tasks, task_options=task_options, user_answers=user_answers, get_difficulty_color=get_difficulty_color, user=session.get('user_info'))
 
 @app.route('/create-test', methods=['GET', 'POST'])
 def create_test_page():
@@ -1670,8 +1735,14 @@ def print_test(test_id):
         return "Тест не найден", 404
     task_ids = [int(id_str.strip()) for id_str in test[3].split(',') if id_str.strip()]
     tasks = get_tasks_by_ids(task_ids)
+    # Prepare options for multiple choice tasks
+    task_options = {}
+    for task in tasks:
+        if len(task) > 7 and task[7] == 'multiple_choice':
+            options = get_task_options(task[0])
+            task_options[task[0]] = options
     conn.close()
-    return render_template('print_test.html', test=test, tasks=tasks, user=session.get('user_info'))
+    return render_template('print_test.html', test=test, tasks=tasks, task_options=task_options, user=session.get('user_info'))
 
 @app.route('/search', methods=['GET'])
 def search():
@@ -1707,8 +1778,7 @@ def search():
     # Преобразуем raw_tasks (tuple rows) в список словарей, совместимых с tasks.html
     tasks = []
     for row in raw_tasks:
-        # Ожидаем формат: (rowid, title, description, anwser, difficulty, tags, source)
-        # Но будем аккуратно: если длина другая — попытаемся извлечь по индексам безопасно.
+        print(row)
         try:
             task_id = row[0]
             title = row[1] if len(row) > 1 else ''
@@ -1717,18 +1787,34 @@ def search():
             difficulty = row[4] if len(row) > 4 else 1
             tags = row[5] if len(row) > 5 else ''
             source = row[6] if len(row) > 6 else ''
+            task_type = row[7] if len(row) > 7 else 'text_answer'
+            is_visible_to_students = row[8] if len(row) > 8 else 1
         except Exception:
-            # если неожиданно row не индексируемый — пропускаем
             continue
 
-        # Получаем списoк имён файлов, относящихся к задаче (get_task_images должен возвращать список имён файлов)
+        # изображения
         try:
-            image_filenames = get_task_images(task_id)  # возвращает список, например ["89_1.jpg","89_2.png"]
+            image_filenames = get_task_images(task_id)
         except Exception:
             image_filenames = []
-
-        # Преобразуем в объекты, которые шаблон сможет адресовать через .filename
         images = [{'filename': fn} for fn in image_filenames]
+
+        # Варианты для multiple_choice
+        options = []
+        correct_option = None  # 1-based index
+        if task_type == 'multiple_choice':
+            raw_opts = get_task_options(task_id)  # ожидается [(id, option_text, is_correct, option_order), ...]
+            # Преобразуем и отсортируем по option_order (если есть)
+            options = [
+                {'id': o[0], 'text': o[1], 'is_correct': bool(o[2]), 'order': o[3] if len(o) > 3 else 0}
+                for o in raw_opts
+            ]
+            options.sort(key=lambda x: x.get('order', 0))
+            # найдем 1-based индекс правильного варианта (первого помеченного)
+            for idx, opt in enumerate(options, start=1):
+                if opt.get('is_correct'):
+                    correct_option = idx
+                    break
 
         tasks.append({
             'id': task_id,
@@ -1738,8 +1824,13 @@ def search():
             'difficulty': difficulty or 1,
             'tags': tags,
             'source': source,
-            'images': images
+            'images': images,
+            'task_type': task_type,
+            'options': options,
+            'correct_option': correct_option,
+            'is_visible_to_students': is_visible_to_students
         })
+
 
     # Передаём в шаблон
     return render_template(
@@ -1756,36 +1847,25 @@ def search():
 def edit_task(task_id):
     """
     Редактирование задания — поддерживает множественные изображения.
-    Ожидает в форме:
-      - файлы: input name="images" (multiple) или одиночный name="image"
-      - удаление: checkboxes name="delete_images" (значение = имя файла, например "89_1.jpg")
-        также поддерживается старое поле delete_image (checkbox) — в этом случае будет удалён путь из image_path (если он есть).
-    После сохранения поле image_path в БД обновляется на первый доступный файл или NULL.
     """
     if 'user_id' not in session:
         flash("Авторизация требуется", "error")
         return redirect(url_for('login'))
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT 1 FROM teachers WHERE user_id = ?", (session['user_id'],))
-    if not cur.fetchone():
-        conn.close()
-        flash("Только учителя могут редактировать", "error")
-        return redirect(url_for('home'))
-
-    # Получаем строку задачи
+    # Получим задание
     cur.execute("SELECT rowid, * FROM tasks6 WHERE rowid = ?", (task_id,))
     row = cur.fetchone()
-    if not row:
-        conn.close()
-        abort(404)
-    # Получаем колонки и преобразуем в dict
-    cur.execute("PRAGMA table_info('tasks6')")
-    cols = [c[1] for c in cur.fetchall()]
-    task = {cols[i]: row[i+1] for i in range(len(cols))}
-    task['id'] = task_id
+    cols = [c[0] for c in cur.description] if cur.description else []
+    task = {}
+    if row:
+        task = dict(zip(cols, row))
 
-    # текущие изображения (имена файлов, без пути)
+    # Подготовим опции и текущие изображения
+    task_options = []
+    if task.get('task_type') == 'multiple_choice':
+        task_options = get_task_options(task_id)
     current_images = get_task_images(task_id)
 
     if request.method == "POST":
@@ -1795,82 +1875,97 @@ def edit_task(task_id):
         difficulty = request.form.get('difficulty', '').strip()
         tags = request.form.get('tags', '').strip()
         source = request.form.get('source', '').strip()
+        task_type = request.form.get('task_type', 'text_answer').strip()
+        is_visible_raw = request.form.get('is_visible_to_students')
+        is_visible_to_students_flag = 1 if is_visible_raw in ('on','1','true') else 0
 
-        # Если поля обязательны
-        if not title or not description:
-            flash("Заполните название и описание", "error")
+        if not title:
+            flash("Заполните название", "error")
             conn.close()
-            return render_template('edit_task.html', task=task, task_images=current_images)
+            return render_template('edit_task.html', task=task, task_images=current_images, task_options=task_options)
+
+        if task_type == 'text_answer' and not answer:
+            flash("Для текстового задания требуется ответ", "error")
+            conn.close()
+            return render_template('edit_task.html', task=task, task_images=current_images, task_options=task_options)
 
         try:
             difficulty_int = int(difficulty)
             if not 1 <= difficulty_int <= 10:
                 raise ValueError
-        except ValueError:
-            flash("Сложность от 1 до 10", "error")
-            conn.close()
-            return render_template('edit_task.html', task=task, task_images=current_images)
+        except Exception:
+            difficulty_int = 1
 
-        # Обновляем текстовые поля
-        cur.execute("UPDATE tasks6 SET title = ?, description = ?, anwser = ?, difficulty = ?, tags = ?, source = ? WHERE rowid = ?",
-                    (title, description, answer, difficulty_int, tags, source, task_id))
+        # Обновляем основные поля — обратите внимание на порядок параметров
+        cur.execute(
+            "UPDATE tasks6 SET title = ?, description = ?, anwser = ?, difficulty = ?, tags = ?, source = ?, task_type = ?, is_visible_to_students = ? WHERE rowid = ?",
+            (title, description, answer, difficulty_int, tags, source, task_type, is_visible_to_students_flag, task_id)
+        )
         conn.commit()
 
-        # 1) Обработка удаления изображений
-        # Поддерживаем: список delete_images (много) и старую checkbox delete_image
+        # Обработка вариантов для multiple_choice
+        if task_type == 'multiple_choice':
+            option_texts = request.form.getlist('option_text[]')
+            correct_option = request.form.get('correct_option')
+            if not option_texts:
+                flash("Добавьте варианты ответов", "error")
+                conn.close()
+                return render_template('edit_task.html', task=task, task_images=current_images, task_options=task_options)
+            try:
+                correct_index = int(correct_option) if correct_option is not None else None
+            except Exception:
+                correct_index = None
+
+            options_data = []
+            for i, ot in enumerate(option_texts):
+                if ot.strip():
+                    options_data.append({
+                        'text': ot.strip(),
+                        'is_correct': bool(correct_index == i),
+                        'order': i
+                    })
+            # Заменим опции в БД (реализовано в helper)
+            save_task_options(task_id, options_data, cursor=cur)
+            conn.commit()
+
+        # Обработка удаления старых изображений
         delete_list = request.form.getlist('delete_images') or []
-        # если старый флаг стоял, удаляем файл, который хранится в task['image_path']
         if request.form.get('delete_image') == 'on' and task.get('image_path'):
-            try:
-                if os.path.exists(task['image_path']):
-                    os.remove(task['image_path'])
-            except Exception:
-                pass
-            # если есть колонка image_path — обнулим её
-            if 'image_path' in cols:
-                cur.execute("UPDATE tasks6 SET image_path = NULL WHERE rowid = ?", (task_id,))
-                conn.commit()
+            delete_list.append(os.path.basename(task['image_path']))
 
-        # удалим все файлы, имена которых указаны в delete_list (они — имена файлов, типа "89_1.jpg")
-        for fname in delete_list:
-            safe_name = os.path.basename(fname)  # защита
-            path = os.path.join(app.config['UPLOAD_FOLDER'], safe_name)
+        for fn in delete_list:
             try:
-                if os.path.exists(path):
-                    os.remove(path)
+                path_to_del = os.path.join(app.config['UPLOAD_FOLDER'], fn)
+                if os.path.exists(path_to_del):
+                    os.remove(path_to_del)
             except Exception:
                 pass
 
-        # 2) Обработка новых загруженных файлов
+        # Загрузка новых изображений (одиночный input 'image' или множественные 'images')
         uploaded = []
-        uploaded += request.files.getlist('images') if 'images' in request.files else []
-        single = request.files.get('image')
-        if single and single.filename:
-            uploaded.append(single)
+        if 'images' in request.files:
+            uploaded = request.files.getlist('images')
+        elif 'image' in request.files:
+            uploaded = [request.files.get('image')]
 
-        # вычисляем следующий индекс для нумерации
-        remaining_images = [p for p in get_task_images(task_id)]
-        # определить текущий максимум индекса
+        # Найдём текущий индекс (max existing index)
+        existing = get_task_images(task_id)
         max_index = 0
-        for im in remaining_images:
-            m = re.match(rf'^{re.escape(str(task_id))}_(\d+)\.(.+)$', im)
+        for ex in existing:
+            m = re.search(r"_(\d+)\.", ex)
             if m:
                 try:
-                    v = int(m.group(1))
-                    if v > max_index:
-                        max_index = v
-                except Exception:
+                    idx = int(m.group(1))
+                    if idx > max_index:
+                        max_index = idx
+                except:
                     pass
-            else:
-                # учёт старого файла "<id>.<ext>" — пометим как индекс 0, но при сохранении новых поставим 1+
-                pass
         idx = max_index + 1 if max_index >= 1 else 1
 
         for f in uploaded:
-            if not f or not f.filename:
+            if not f or not getattr(f, 'filename', None):
                 continue
             if not allowed_image(f.filename):
-                # пропускаем неподдерживаемые расширения
                 continue
             filename = secure_filename(f.filename)
             ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'jpg'
@@ -1880,35 +1975,29 @@ def edit_task(task_id):
                 f.save(dest_path)
                 idx += 1
             except Exception:
-                continue
+                pass
 
-        # 3) После удаления/загрузки — обновляем поле image_path (если колонка есть)
-        try:
-            cur.execute("PRAGMA table_info('tasks6')")
-            cols = [c[1] for c in cur.fetchall()]
-            if 'image_path' in cols:
-                imgs = get_task_images(task_id)
-                if imgs:
-                    first = os.path.join(app.config['UPLOAD_FOLDER'], imgs[0])
-                    cur.execute("UPDATE tasks6 SET image_path = ? WHERE rowid = ?", (first, task_id))
-                else:
-                    cur.execute("UPDATE tasks6 SET image_path = NULL WHERE rowid = ?", (task_id,))
-                conn.commit()
-        except Exception:
-            conn.rollback()
+        # Обновляем image_path в БД на первый доступный файл (если колонка есть)
+        cur.execute("PRAGMA table_info('tasks6')")
+        cols_info = cur.fetchall()
+        cols = [c[1] for c in cols_info]
+        if 'image_path' in cols:
+            imgs = get_task_images(task_id)
+            if imgs:
+                first = os.path.join(app.config['UPLOAD_FOLDER'], imgs[0])
+                cur.execute("UPDATE tasks6 SET image_path = ? WHERE rowid = ?", (first, task_id))
+            else:
+                cur.execute("UPDATE tasks6 SET image_path = NULL WHERE rowid = ?", (task_id,))
+            conn.commit()
 
         conn.close()
         flash("Задание обновлено", "success")
-        return redirect(url_for('edit_task', task_id=task_id))
+        return redirect(url_for('search'))
 
-    # GET — отображение формы с текущими изображениями (список имён)
+    # GET
     conn.close()
-    task_images = get_task_images(task_id)
-    # image_url в старом шаблоне — первый файл (если есть), иначе None
-    image_url = None
-    if task_images:
-        image_url = os.path.join(app.config['UPLOAD_FOLDER'], task_images[0])
-    return render_template('edit_task.html', task=task, task_images=task_images, image_url=image_url)
+    return render_template('edit_task.html', task=task, task_images=current_images, task_options=task_options)
+
 
 
 
@@ -1974,4 +2063,4 @@ def admin_delete_test(test_id):
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=9191)
+    app.run(host='0.0.0.0', port=9292)

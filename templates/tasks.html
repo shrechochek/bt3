@@ -138,6 +138,11 @@
             font-size: 0.8em;
             color: #95a5a6;
         }
+        .task-status {
+            margin-top: 10px;
+            font-size: 0.8em;
+            color: #ff9a8b;
+        }
         .no-tasks {
             text-align: center;
             padding: 40px;
@@ -222,54 +227,84 @@
     
     {% if tasks %}
         {% for task in tasks %}
-        <div class="task">
-            <div class="task-controls">
-                {% if is_teacher %}
-                <!-- кнопка редактировать (видна только учителям) -->
-                <a href="{{ url_for('edit_task', task_id=task.id) }}" class="edit-btn" title="Редактировать задание">
-                    <span class="icon-pencil" aria-hidden="true"></span>
-                    Редактировать
-                </a>
+            {% if task.is_visible_to_students == 1 or is_teacher %}
+            <div class="task">
+                <div class="task-controls">
+                    {% if is_teacher %}
+                    <!-- кнопка редактировать (видна только учителям) -->
+                    <a href="{{ url_for('edit_task', task_id=task.id) }}" class="edit-btn" title="Редактировать задание">
+                        <span class="icon-pencil" aria-hidden="true"></span>
+                        Редактировать
+                    </a>
+                    {% endif %}
+                </div>
+
+                <!-- тут можно ещё сделать чтобы было надпись была над заданиями для всех -->
+                {% if is_teacher%}
+                    {% if task.is_visible_to_students == 0 %}
+                    <div class="task-status">Задание видно только учителям</div>
+                    {% endif %}
+                {% endif %}
+
+                <div class="task-id">ID: {{ task.id }}</div>
+                <div class="task-title">{{ task.title }}</div>
+                
+                <!-- выводим все изображения -->
+                {% if task.images %}
+                <div class="task-images">
+                    {% for image in task.images %}
+                    <img src="{{ url_for('get_image', filename=image.filename) }}" 
+                        alt="Изображение к задаче {{ task.id }}" 
+                        onerror="this.style.display='none'">
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <div class="task-description">{{ task.description }}</div>
+                
+                {% if task.task_type == 'multiple_choice' %}
+                    <div class="task-options">
+                        <ol>
+                            {% for opt in task.options %}
+                                <li>{{ opt.text }}</li>
+                            {% endfor %}
+                        </ol>
+
+                        <button class="show-answer-btn" onclick="toggleCorrect('correct-{{ task.id }}', this)">
+                            Показать ответ
+                        </button>
+
+                        <div id="correct-{{ task.id }}" class="task-answer" style="display:none;">
+                            {% if task.correct_option %}
+                                Правильный вариант: <strong>{{ task.correct_option }}</strong>
+                            {% else %}
+                                Правильный вариант не задан.
+                            {% endif %}
+                        </div>
+                    </div>
+                {% elif task.answer %}
+                    <button class="show-answer-btn" onclick="toggleAnswer('answer-{{ task.id }}', this)">
+                        Показать ответ
+                    </button>
+                    <div id="answer-{{ task.id }}" class="task-answer" style="display:none;">
+                        Ответ: {{ task.answer }}
+                    </div>
+                {% endif %}
+
+                
+                <div class="task-difficulty" style="background-color: {{ get_difficulty_color(task.difficulty) }}">
+                    Сложность: {{ task.difficulty }}/10
+                </div>
+                
+                {% if task.tags %}
+                <div class="task-tags">Теги: {{ task.tags }}</div>
+                {% endif %}
+                
+                {% if task.source %}
+                <div class="task-source">Источник: {{ task.source }}</div>
                 {% endif %}
             </div>
-
-            <div class="task-id">ID: {{ task.id }}</div>
-            <div class="task-title">{{ task.title }}</div>
-            
-            <!-- выводим все изображения -->
-            {% if task.images %}
-            <div class="task-images">
-                {% for image in task.images %}
-                <img src="{{ url_for('get_image', filename=image.filename) }}" 
-                     alt="Изображение к задаче {{ task.id }}" 
-                     onerror="this.style.display='none'">
-                {% endfor %}
-            </div>
             {% endif %}
-            
-            <div class="task-description">{{ task.description }}</div>
-            
-            {% if task.answer %}
-            <button class="show-answer-btn" onclick="toggleAnswer('answer-{{ task.id }}')">
-                Показать ответ
-            </button>
-            <div id="answer-{{ task.id }}" class="task-answer">
-                Ответ: {{ task.answer }}
-            </div>
-            {% endif %}
-            
-            <div class="task-difficulty" style="background-color: {{ get_difficulty_color(task.difficulty) }}">
-                Сложность: {{ task.difficulty }}/10
-            </div>
-            
-            {% if task.tags %}
-            <div class="task-tags">Теги: {{ task.tags }}</div>
-            {% endif %}
-            
-            {% if task.source %}
-            <div class="task-source">Источник: {{ task.source }}</div>
-            {% endif %}
-        </div>
         {% endfor %}
     {% else %}
         <div class="no-tasks">
@@ -333,6 +368,29 @@
             } else {
                 answerElement.style.display = 'block';
                 button.textContent = 'Скрыть ответ';
+            }
+        }
+        function toggleAnswer(answerId, btn) {
+            const answerElement = document.getElementById(answerId);
+            if (!answerElement) return;
+            if (answerElement.style.display === 'block') {
+                answerElement.style.display = 'none';
+                if (btn) btn.textContent = 'Показать ответ';
+            } else {
+                answerElement.style.display = 'block';
+                if (btn) btn.textContent = 'Скрыть ответ';
+            }
+        }
+
+        function toggleCorrect(correctId, btn) {
+            const el = document.getElementById(correctId);
+            if (!el) return;
+            if (el.style.display === 'block') {
+                el.style.display = 'none';
+                if (btn) btn.textContent = 'Показать ответ';
+            } else {
+                el.style.display = 'block';
+                if (btn) btn.textContent = 'Скрыть ответ';
             }
         }
     </script>

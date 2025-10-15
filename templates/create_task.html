@@ -88,20 +88,53 @@
         
         <form method="POST" action="{{ url_for('create_task') }}" enctype="multipart/form-data">
             <div class="form-group">
-                <!-- <label for="title">Название:</label>
-                <input type="text" id="title" name="title" class="form-control" required> -->
+                <label for="task_type">Тип задания:</label>
+                <select id="task_type" name="task_type" class="form-control" onchange="toggleTaskType()" required>
+                    <option value="text_answer">Текстовый ответ</option>
+                    <option value="multiple_choice">Выбор из вариантов</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
                 <label for="title">Условие:</label>
-                <textarea type="text" id="title" name="title" class="form-control" required></textarea>
+                <textarea id="title" name="title" class="form-control" required></textarea>
             </div>
             
-            <div class="form-group">
-                <label for="description">Варианты ответа:</label>
-                <textarea id="description" name="description" class="form-control" required></textarea>
+            <div class="form-group" id="description-group">
+                <label for="description">Описание:</label>
+                <textarea id="description" name="description" class="form-control"></textarea>
             </div>
             
-            <div class="form-group">
-                <label for="answer">Ответ:</label>
-                <input type="text" id="answer" name="answer" class="form-control" required>
+            <!-- Text answer fields -->
+            <div id="text-answer-fields">
+                <div class="form-group">
+                    <label for="answer">Ответ:</label>
+                    <input type="text" id="answer" name="answer" class="form-control">
+                </div>
+            </div>
+            
+            <!-- Multiple choice fields -->
+            <div id="multiple-choice-fields" style="display: none;">
+                <div class="form-group">
+                    <label>Варианты ответов:</label>
+                    <div id="options-container">
+                        <div class="option-row">
+                            <input type="text" name="option_text[]" class="form-control" placeholder="Вариант 1" style="display: inline-block; width: 70%; margin-right: 10px;">
+                            <label style="display: inline-block; margin-right: 10px;">
+                                <input type="radio" name="correct_option" value="0" style="margin-right: 5px;">Правильный
+                            </label>
+                            <button type="button" onclick="removeOption(this)" class="btn" style="width: auto; padding: 5px 10px; background-color: #e74c3c;">Удалить</button>
+                        </div>
+                        <div class="option-row">
+                            <input type="text" name="option_text[]" class="form-control" placeholder="Вариант 2" style="display: inline-block; width: 70%; margin-right: 10px;">
+                            <label style="display: inline-block; margin-right: 10px;">
+                                <input type="radio" name="correct_option" value="1" style="margin-right: 5px;">Правильный
+                            </label>
+                            <button type="button" onclick="removeOption(this)" class="btn" style="width: auto; padding: 5px 10px; background-color: #e74c3c;">Удалить</button>
+                        </div>
+                    </div>
+                    <button type="button" onclick="addOption()" class="btn" style="width: auto; padding: 8px 15px; background-color: #27ae60; margin-top: 10px;">Добавить вариант</button>
+                </div>
             </div>
             
             <div class="form-group">
@@ -123,9 +156,64 @@
                 <label for="image">Изображение (JPG/PNG):</label>
                 <input type="file" id="image" name="image" accept=".jpg,.jpeg,.png">
             </div>
+
+            <div class="form-group">
+                <label for="is_visible_to_students">Видно ли задание ученикам:</label>
+                <input type="checkbox" id="is_visible_to_students" name="is_visible_to_students">
+            </div>
             
             <button type="submit" class="btn">Добавить задание</button>
         </form>
+        
+        <script>
+            let optionCount = 2;
+            
+            function toggleTaskType() {
+                const taskType = document.getElementById('task_type').value;
+                const textFields = document.getElementById('text-answer-fields');
+                const multipleChoiceFields = document.getElementById('multiple-choice-fields');
+                const descriptionGroup = document.getElementById('description-group');
+                
+                if (taskType === 'multiple_choice') {
+                    textFields.style.display = 'none';
+                    multipleChoiceFields.style.display = 'block';
+                    descriptionGroup.style.display = 'none';
+                    document.getElementById('answer').required = false;
+                } else {
+                    textFields.style.display = 'block';
+                    multipleChoiceFields.style.display = 'none';
+                    descriptionGroup.style.display = 'block';
+                    document.getElementById('answer').required = true;
+                }
+            }
+            
+            function addOption() {
+                const container = document.getElementById('options-container');
+                const newOption = document.createElement('div');
+                newOption.className = 'option-row';
+                newOption.innerHTML = `
+                    <input type="text" name="option_text[]" class="form-control" placeholder="Вариант ${optionCount + 1}" style="display: inline-block; width: 70%; margin-right: 10px;">
+                    <label style="display: inline-block; margin-right: 10px;">
+                        <input type="radio" name="correct_option" value="${optionCount}" style="margin-right: 5px;">Правильный
+                    </label>
+                    <button type="button" onclick="removeOption(this)" class="btn" style="width: auto; padding: 5px 10px; background-color: #e74c3c;">Удалить</button>
+                `;
+                container.appendChild(newOption);
+                optionCount++;
+            }
+            
+            function removeOption(button) {
+                const container = document.getElementById('options-container');
+                if (container.children.length > 1) {
+                    button.parentElement.remove();
+                    // Renumber remaining options
+                    const options = container.querySelectorAll('input[type="radio"]');
+                    options.forEach((radio, index) => {
+                        radio.value = index;
+                    });
+                }
+            }
+        </script>
     </div>
 </body>
 </html>
