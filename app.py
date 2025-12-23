@@ -1536,7 +1536,7 @@ def profile():
         new_surname = request.form.get('surname', '').strip()
         current_password = request.form.get('current_password', '')
         new_password = request.form.get('new_password', '')
-        confirm_password = request.form.get('confirm_password', '')
+        # confirm_password = request.form.get('confirm_password', '')
         updates = {}
         if new_name and new_name != (user.get('name') or ''):
             updates['name'] = new_name
@@ -1551,12 +1551,12 @@ def profile():
             if not pw_ok:
                 flash('Текущий пароль неверен', 'error')
                 return redirect(url_for('profile'))
-            if new_password != confirm_password:
-                flash('Пароли не совпадают', 'error')
-                return redirect(url_for('profile'))
-            if len(new_password) < 6:
-                flash('Пароль минимум 6 символов', 'error')
-                return redirect(url_for('profile'))
+            # if new_password != confirm_password:
+            #     flash('Пароли не совпадают', 'error')
+            #     return redirect(url_for('profile'))
+            # if len(new_password) < 6:
+            #     flash('Пароль минимум 6 символов', 'error')
+            #     return redirect(url_for('profile'))
             updates['password'] = hash_password(new_password)
         if not updates:
             flash('Нечего обновлять', 'info')
