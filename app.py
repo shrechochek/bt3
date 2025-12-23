@@ -1547,7 +1547,7 @@ def profile():
                 flash('Укажите текущий пароль', 'error')
                 return redirect(url_for('profile'))
             stored = user.get('password') or ''
-            pw_ok = check_password_hash(stored, current_password) if stored.startswith('pbkdf2:sha256:') else stored == current_password
+            pw_ok = stored == hash_password(current_password)
             if not pw_ok:
                 flash('Текущий пароль неверен', 'error')
                 return redirect(url_for('profile'))
@@ -1557,7 +1557,7 @@ def profile():
             if len(new_password) < 6:
                 flash('Пароль минимум 6 символов', 'error')
                 return redirect(url_for('profile'))
-            updates['password'] = generate_password_hash(new_password)
+            updates['password'] = hash_password(new_password)
         if not updates:
             flash('Нечего обновлять', 'info')
             return redirect(url_for('profile'))
