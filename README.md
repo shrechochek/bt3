@@ -6,27 +6,27 @@
 
 установите библиотеки, если они не установлены
 
-```terminal
+```sh
 pip install flask
 pip install PyMuPDF
 ```
 
 выполните команду в терминале для клонирования репозитория:
 
-```terminal
+```sh
 git clone https://github.com/shrechochek/bt3.git
 ```
 
 потом перейдите в папку с файлом app.py:
 
-```terminal
+```sh
 cd bt3
 ```
 
 затем запустите программу:
 
 
-```terminal
+```sh
 pyhton app.py
 ```
 
@@ -47,7 +47,7 @@ http://127.0.0.1:9191/
 
 ## необходимые библиотеки
 
-```terminal
+```sh
 Flask 3.1.0
 PyMuPDF 1.26.4
 ```
