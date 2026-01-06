@@ -179,9 +179,9 @@
             <div class="task-title">{{ task[1] }}</div>
             
             {% if task[0] %}
-                {% set image_path = 'images/' ~ task[0] ~ '.jpg' %}
+                {% set image_path = 'images/' ~ task[0] ~ '_1.jpg' %}
                 {% if image_path %}
-                <img src="{{ url_for('get_image', filename=task[0]~'.jpg') }}" 
+                <img src="{{ url_for('get_image', filename=task[0]~'_1.jpg') }}" 
                      alt="Изображение к задаче {{ task[0] }}" 
                      class="task-image"
                      onerror="this.style.display='none'">
