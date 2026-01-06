@@ -288,109 +288,228 @@ def parse_pdf_to_tasks_clean(pdf_path, images_output_dir="/mnt/data/parsed_image
                 temp_path = save_image_bytes(image_bytes, images_temp_dir, temp_base, ext)
                 images.append({'temp_path': temp_path, 'page': p_idx, 'bbox': bbox, 'ext': ext})
 
-    # 3) Разбивка текста на блоки заданий по номерам "N." или подобным
-    starts = [(m.start(), int(m.group(1))) for m in re.finditer(r'(?m)^\s*(\d{1,3})[.)]\s*', full_text)]
-    tasks_blocks = []
-    if not starts:
-        cursor = 0
-        for p_idx, txt in enumerate(pages_text):
-            for m in re.finditer(r'(?m)^\s*(\d{1,3})[.)]\s*', txt):
-                starts.append((cursor + m.start(), int(m.group(1))))
-            cursor += len(txt) + 1
-    starts.sort()
-    if starts:
-        for i, (pos, num) in enumerate(starts):
-            start_pos = pos
-            end_pos = starts[i+1][0] if i+1 < len(starts) else len(full_text)
-            block_text = full_text[start_pos:end_pos].strip()
-            # Убираем "N." в начале
-            block_text = re.sub(r'^\s*\d{1,3}[.)]\s*', '', block_text, count=1)
-            # Ищем метку блока
-            back = full_text[max(0, start_pos-300):start_pos]
-            mbl = re.search(r'Блок\s*№\s*(\d+)', back)
-            block_label = f"Блок №{mbl.group(1)}" if mbl else None
-            tasks_blocks.append({'number': num, 'text': block_text, 'block_label': block_label})
-    else:
-        # Если не нашли структуру, всё как один блок
-        tasks_blocks.append({'number': None, 'text': full_text, 'block_label': None})
+    # 3) Построение сегментов по страницам на основе анкоров (layout-based)
+    # Для каждой страницы формируем вертикальные диапазоны между анкорами; каждому диапазону сопоставляем номер задания
+    anchors_sorted = sorted(anchors, key=lambda a: (a['page'], a['y']))
+    page_to_anchors = {}
+    for a in anchors_sorted:
+        page_to_anchors.setdefault(a['page'], []).append(a)
 
-    # 4) Разбор каждого блока: вопрос и варианты ответа
+    # Подготовим изображения (уже извлечены выше в images)
+    # Сгруппируем по страницам
+    images_by_page = {}
+    for im in images:
+        images_by_page.setdefault(im['page'], []).append(im)
+
+    # Вспом. функции
+    def is_option_start(line: str) -> bool:
+        s = line.lstrip()
+        if not s:
+            return False
+        # буква + .|) (латиница/кириллица)
+        if re.match(r'^[A-Za-zА-Яа-я]\s*[\.|\)]\s+\S', s):
+            return True
+        # цифра + .|)
+        if re.match(r'^\d{1,3}\s*[\.|\)]\s+\S', s):
+            return True
+        # буллет/тире
+        if re.match(r'^[\-\–\—\*\u2022\u25CF\u25CBoO0]\s+\S', s):
+            return True
+        # римские цифры i), ii), iii)
+        if re.match(r'^(?:[ivx]{1,4})\s*[\.|\)]\s+\S', s, re.I):
+            return True
+        return False
+
+    def split_question_and_options(lines):
+        # Найти индекс начала опций (если 2+ подряд выглядят как опции)
+        starts = [i for i, l in enumerate(lines) if is_option_start(l)]
+        opt_start = None
+        for i in range(len(starts) - 1):
+            if starts[i+1] == starts[i] + 1:
+                opt_start = starts[i]
+                break
+        if opt_start is None:
+            return "\n".join(lines).strip(), [], []
+        question_lines = lines[:opt_start]
+        option_lines = lines[opt_start:]
+        # Сгруппировать опции, поддерживая переносы
+        grouped = []
+        markers = []
+        cur = None
+        cur_marker = None
+        def extract_marker(text):
+            s = text.lstrip()
+            m = re.match(r'^([A-Za-zА-Яа-я])\s*[\.|\)]\s*(.*)$', s)
+            if m:
+                return m.group(1).lower(), m.group(2)
+            m = re.match(r'^(\d{1,3})\s*[\.|\)]\s*(.*)$', s)
+            if m:
+                return m.group(1), m.group(2)
+            m = re.match(r'^([ivx]{1,4})\s*[\.|\)]\s*(.*)$', s, re.I)
+            if m:
+                return m.group(1).lower(), m.group(2)
+            m = re.match(r'^[\-\–\—\*\u2022\u25CF\u25CBoO0]\s+(.*)$', s)
+            if m:
+                return None, m.group(1)
+            return None, text
+        for l in option_lines:
+            if is_option_start(l) or cur is None:
+                if cur is not None:
+                    grouped.append(cur.strip())
+                    markers.append(cur_marker)
+                mk, rest = extract_marker(l)
+                cur_marker = mk
+                cur = rest
+            else:
+                cur += ' ' + l.strip()
+        if cur is not None:
+            grouped.append(cur.strip())
+            markers.append(cur_marker)
+        return "\n".join(question_lines).strip(), grouped, markers
+
+    # Построим сегменты и распарсим их
     parsed = []
-    for tb in tasks_blocks:
-        txt = tb['text']
-        m_ans = re.search(r'(?mi)\bОтвет\b[:\s]*', txt)
-        if m_ans:
-            q_text = txt[:m_ans.start()].strip()
-            a_text = txt[m_ans.end():].strip()
+    for p_idx in range(len(doc)):
+        page = doc[p_idx]
+        blocks = page.get_text("blocks")
+        text_blocks = [b for b in blocks if isinstance(b, (list, tuple)) and len(b) >= 5 and b[4]]
+        # диапазоны по y
+        pas = page_to_anchors.get(p_idx, [])
+        y_edges = [0.0] + [a['y'] for a in pas] + [page.rect.height]
+        # ассоциируем каждому промежутку номер последнего анктора ниже края (то есть верхняя граница — предыдущий анкор)
+        segments = []
+        if pas:
+            # между анкорами
+            for i in range(len(pas)):
+                y0 = pas[i]['y']
+                y1 = pas[i+1]['y'] if i+1 < len(pas) else page.rect.height
+                segments.append({'y0': y0, 'y1': y1, 'num': pas[i]['num']})
+            # область над первым анкором — прикрепим к этому же номеру (иногда шапка задания перед номером)
+            segments.insert(0, {'y0': 0.0, 'y1': pas[0]['y'], 'num': pas[0]['num']})
         else:
-            parts = re.split(r'\n{2,}', txt, maxsplit=1)
-            if len(parts) > 1:
-                q_text, a_text = parts[0].strip(), parts[1].strip()
+            segments.append({'y0': 0.0, 'y1': page.rect.height, 'num': None})
+
+        # Накапливаем задания этой страницы по номеру, чтобы объединять фрагменты одного задания
+        page_tasks_by_num = {}
+        for seg in segments:
+            y0, y1, num = seg['y0'], seg['y1'], seg['num']
+            # Соберём все текстовые строки из блоков, попадающих в диапазон
+            seg_lines = []
+            for b in text_blocks:
+                bx0, by0, bx1, by1, text = b[0], b[1], b[2], b[3], b[4]
+                # пересечение по вертикали
+                if by1 >= y0 - 2 and by0 <= y1 + 2:
+                    # добавляем строки в порядке блоков
+                    for ln in str(text).splitlines():
+                        if ln.strip():
+                            seg_lines.append(ln)
+            if not seg_lines:
+                continue
+            # Разделение на вопрос/варианты
+            q_text, options, markers = split_question_and_options(seg_lines)
+
+            # Удаление хвостовых номеров страниц (аккуратно)
+            q_lines = [l for l in q_text.splitlines()]
+            while q_lines and not q_lines[-1].strip():
+                q_lines.pop()
+            if q_lines and re.fullmatch(r'\d{1,3}', q_lines[-1].strip()):
+                q_lines.pop()
+            q_text = "\n".join(q_lines).strip()
+
+            # Поиск строки "Ответ" в пределах сегмента
+            seg_text_joined = "\n".join(seg_lines)
+            ans_hint = None
+            mm = re.search(r'(?mi)\bОтвет\b\s*[:\-]?\s*(.+)$', seg_text_joined)
+            if mm:
+                ans_hint = mm.group(1).strip()
+
+            # Определение типа
+            if len([o for o in options if o.strip()]) >= 2:
+                task_type = 'multiple_choice'
+                # Определяем правильный
+                correct_answer = ""
+                if ans_hint:
+                    hint = ans_hint.strip()
+                    letter_map = {ch: i for i, ch in enumerate(list('абвгдёжзийклмнопрстуфхцчшщьыъэюя'))}
+                    latin_map = {ch: i for i, ch in enumerate(list('abcdefghijklmnopqrstuvwxyz'))}
+                    m = re.match(r'^([A-Za-zА-Яа-я])$', hint)
+                    if m:
+                        key = m.group(1).lower()
+                        idx = letter_map.get(key, latin_map.get(key))
+                        if isinstance(idx, int) and 0 <= idx < len(options):
+                            correct_answer = options[idx]
+                    elif re.match(r'^\d{1,3}$', hint):
+                        idx = int(hint) - 1
+                        if 0 <= idx < len(options):
+                            correct_answer = options[idx]
+                    else:
+                        for a in options:
+                            if hint.lower() in a.lower() or a.lower() in hint.lower():
+                                correct_answer = a
+                                break
+                else:
+                    correct_answer = ""
             else:
-                q_text, a_text = txt.strip(), ""
-        # Удаляем постраничные номера в конце вопроса
-        q_text = re.sub(r'\n+\d{1,3}\s*$', '', q_text).strip()
+                task_type = 'open_answer'
+                correct_answer = ans_hint or ""
 
-        answers = []
-        correct = []
-        if a_text:
-            for line in a_text.splitlines():
-                raw = line.strip()
-                if not raw or re.match(r'^\d{1,3}$', raw):
-                    continue
-                cleaned, is_corr = clean_option_line(raw)
-                if cleaned:
-                    answers.append(cleaned)
-                    if is_corr:
-                        correct.append(cleaned)
+            # Свяжем изображения по диапазону
+            seg_images = []
+            for im in images_by_page.get(p_idx, []):
+                by0, by1 = im['bbox'][1], im['bbox'][3]
+                midy = (by0 + by1) / 2.0
+                if y0 - 2 <= midy <= y1 + 2:
+                    tasknum = num if num is not None else f"p{p_idx+1}"
+                    outbase = f"{tasknum}_{len(seg_images)+1}"
+                    outpath = save_image_bytes(open(im['temp_path'],'rb').read(), images_output_dir, outbase, im['ext'])
+                    seg_images.append(os.path.basename(outpath))
 
-        # Определяем тип задания и правильный ответ
-        if answers:
-            task_type = 'multiple_choice'
-            if correct:
-                # Если несколько правильных, соединяем в строку через "; "
-                correct_answer = correct[0] if len(correct) == 1 else "; ".join(correct)
+            # Фильтрация "ложных" сегментов: пропустить шапки/футеры и мелкие куски
+            q_letters = re.sub(r'[^A-Za-zА-Яа-яЁё0-9]+', '', q_text)
+            has_meaningful_text = len(q_letters) >= 25 or '?' in q_text
+            if not options and not seg_images and not ans_hint and not has_meaningful_text:
+                continue
+            # Если номер не распознан и мало содержимого — пропускаем
+            if num is None and not options and len(q_letters) < 50 and not seg_images:
+                continue
+
+            # Объединение фрагментов одного задания с одинаковым номером на странице
+            key = (p_idx, num)
+            if key in page_tasks_by_num:
+                existing = page_tasks_by_num[key]
+                # слить тексты
+                if q_text:
+                    if existing['question_text']:
+                        existing['question_text'] += "\n" + q_text
+                    else:
+                        existing['question_text'] = q_text
+                # слить опции (уникальные по тексту)
+                for opt in options:
+                    if opt and all(opt != eo for eo in existing['options']):
+                        existing['options'].append(opt)
+                # если новый correct задан — обновляем
+                if correct_answer:
+                    existing['correct_answer'] = correct_answer
+                # тип: если появились ≥2 опций — принудительно multiple_choice
+                if len([o for o in existing['options'] if o.strip()]) >= 2:
+                    existing['task_type'] = 'multiple_choice'
+                # изображения
+                existing['images'].extend(seg_images)
             else:
-                correct_answer = ""  # нет явно отмеченных вариантов
-        else:
-            task_type = 'open_answer'
-            correct_answer = ""  # нет вариантов ответа
+                page_tasks_by_num[key] = {
+                    'number': num,
+                    'question_text': q_text,
+                    'options': options,
+                    'correct_answer': correct_answer,
+                    'task_type': task_type,
+                    'images': seg_images
+                }
 
-        parsed.append({
-            'number': tb.get('number'),
-            'question_text': q_text,
-            'options': answers,
-            'correct_answer': correct_answer,
-            'task_type': task_type,
-            'images': []
-        })
+        # Добавляем объединённые задания этой страницы в общий список
+        for _, task in page_tasks_by_num.items():
+            parsed.append(task)
 
-    # 5) Привязка изображений к заданиям по ближайшему анкору
-    num_to_index = {p['number']: idx for idx,p in enumerate(parsed) if p['number'] is not None}
-    def img_mid_y(bbox): 
-        return (bbox[1] + bbox[3]) / 2.0
-    for img in images:
-        best_anchor = None
-        best_score = None
-        midy = img_mid_y(img['bbox'])
-        for anc in anchors:
-            score = abs(img['page'] - anc['page'])*10000 + abs(midy - anc['y'])
-            if midy + 20 < anc['y']:
-                score += 2000
-            if best_score is None or score < best_score:
-                best_score = score
-                best_anchor = anc
-        assigned_num = best_anchor['num'] if best_anchor else None
-        if assigned_num in num_to_index:
-            idx = num_to_index[assigned_num]
-        else:
-            idx = 0  # если не нашли подходящий анкор, прикрепляем к первому
-        tasknum = parsed[idx]['number'] if parsed[idx]['number'] is not None else f"i{idx+1}"
-        existing = parsed[idx]['images']
-        outbase = f"{tasknum}_{len(existing)+1}"
-        # Сохраняем изображение в images_output_dir
-        outpath = save_image_bytes(open(img['temp_path'],'rb').read(), images_output_dir, outbase, img['ext'])
-        parsed[idx]['images'].append(os.path.basename(outpath))
+    # Старые изображения (tmp) уже распределены; если остались неиспользованные — удалим ниже
 
     # Удаляем временную папку с изображениями
     try:
@@ -1417,7 +1536,7 @@ def profile():
         new_surname = request.form.get('surname', '').strip()
         current_password = request.form.get('current_password', '')
         new_password = request.form.get('new_password', '')
-        confirm_password = request.form.get('confirm_password', '')
+        # confirm_password = request.form.get('confirm_password', '')
         updates = {}
         if new_name and new_name != (user.get('name') or ''):
             updates['name'] = new_name
@@ -1428,17 +1547,17 @@ def profile():
                 flash('Укажите текущий пароль', 'error')
                 return redirect(url_for('profile'))
             stored = user.get('password') or ''
-            pw_ok = check_password_hash(stored, current_password) if stored.startswith('pbkdf2:sha256:') else stored == current_password
+            pw_ok = stored == hash_password(current_password)
             if not pw_ok:
                 flash('Текущий пароль неверен', 'error')
                 return redirect(url_for('profile'))
-            if new_password != confirm_password:
-                flash('Пароли не совпадают', 'error')
-                return redirect(url_for('profile'))
-            if len(new_password) < 6:
-                flash('Пароль минимум 6 символов', 'error')
-                return redirect(url_for('profile'))
-            updates['password'] = generate_password_hash(new_password)
+            # if new_password != confirm_password:
+            #     flash('Пароли не совпадают', 'error')
+            #     return redirect(url_for('profile'))
+            # if len(new_password) < 6:
+            #     flash('Пароль минимум 6 символов', 'error')
+            #     return redirect(url_for('profile'))
+            updates['password'] = hash_password(new_password)
         if not updates:
             flash('Нечего обновлять', 'info')
             return redirect(url_for('profile'))
@@ -1528,13 +1647,21 @@ def test_result(attempt_id):
     if not attempt:
         flash('Результат не найден', 'error')
         return redirect(url_for('view_tests'))
-    if attempt[2] != session['user_id']:
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM teachers WHERE user_id = ?", (session['user_id'],))
+    is_teacher = cursor.fetchone() is not None
+    conn.close()
+
+    if attempt[2] != session['user_id'] and not is_teacher:
         flash('Нет доступа', 'error')
         return redirect(url_for('view_tests'))
     test = get_test_by_id(attempt[1])
     if not test:
         flash('Тест не найден', 'error')
         return redirect(url_for('view_tests'))
+    
     task_ids = [int(id_str.strip()) for id_str in test[3].split(',') if id_str.strip()]
     tasks = get_tasks_by_ids(task_ids)
     
@@ -1663,6 +1790,75 @@ def guest():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+@app.route('/import-pdf', methods=["GET", "POST"])
+def import_pdf():
+    """
+    Импорт PDF файлов с олимпиадными заданиями в базу данных
+    """
+    if 'user_id' not in session:
+        return jsonify({'status': 'unauthenticated', 'message': 'login required'}) \
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' \
+            else redirect(url_for('login'))
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM teachers WHERE user_id = ?", (session['user_id'],))
+    if not cursor.fetchone():
+        conn.close()
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'forbidden', 'message': 'Только учителя'})
+        flash("Только учителя могут импортировать PDF", "error")
+        return redirect(url_for('home'))
+    conn.close()
+
+    if request.method == "POST":
+        file = request.files.get('file')
+        if not file:
+            msg = "Файл не найден"
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'status': 'error', 'message': msg})
+            flash(msg, "error")
+            return redirect(request.url)
+
+        filename = file.filename
+        if not allowed_file(filename):
+            msg = "Только PDF"
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'status': 'error', 'message': msg})
+            flash(msg, "error")
+            return redirect(request.url)
+
+        tmp_dir = tempfile.mkdtemp()
+        pdf_path = os.path.join(tmp_dir, secure_filename(filename) or "uploaded.pdf")
+        file.save(pdf_path)
+
+        # Импортируем PDF
+        from pdf_importer import PDFImporter
+        importer = PDFImporter()
+        try:
+            count = importer.import_pdf(pdf_path)
+            msg = f"Импортировано {count} заданий"
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'status': 'ok', 'message': msg, 'count': count})
+            flash(msg, "success")
+        except Exception as e:
+            msg = f"Ошибка импорта: {str(e)}"
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'status': 'error', 'message': msg})
+            flash(msg, "error")
+        finally:
+            # Очистка
+            try:
+                os.remove(pdf_path)
+                os.rmdir(tmp_dir)
+            except:
+                pass
+
+        return redirect(url_for('home'))
+
+    return render_template("import_pdf.html")
+
 
 @app.route("/upload-pdf", methods=["GET", "POST"])
 def upload_pdf():

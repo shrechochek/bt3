@@ -1,3 +1,4 @@
 images/
-datbase.db
+.db
 .DS_Store
+pdf_files/
