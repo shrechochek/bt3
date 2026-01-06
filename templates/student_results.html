@@ -110,10 +110,10 @@
                 <div>Средний балл</div>
                 <div class="stat-value">{{ stats.average_score }}%</div>
             </div>
-            <div class="stat-card">
+            <!-- <div class="stat-card">
                 <div>Лучший результат</div>
                 <div class="stat-value">{{ stats.best_score }}%</div>
-            </div>
+            </div> -->
         </div>
         
         <h2>История прохождения тестов</h2>
@@ -127,6 +127,7 @@
                     <th>Результат</th>
                     <th>Длительность</th>
                     <th>Детали</th>
+                    <th>время выполнения</th>
                 </tr>
             </thead>
             <tbody>
@@ -147,6 +148,8 @@
                             Посмотреть
                         </a>
                     </td>
+                    <!-- <td>{{ attempt.time }} сек </td> -->
+                    <td>{{ attempt.time // 60}} мин {{ attempt.time % 60}} сек</td>
                 </tr>
                 {% endfor %}
             </tbody>

@@ -664,11 +664,11 @@ def get_task_with_options(task_id):
         conn.close()
         return None, []
 
-def create_attempt(test_id, user_id, score, answers):
+def create_attempt(test_id, user_id, score, answers, time):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO attempts (test_id, user_id, score, answers, timestamp) VALUES (?, ?, ?, ?, ?)",
-                   (test_id, user_id, score, str(answers), datetime.now().isoformat()))
+    cursor.execute("INSERT INTO attempts (test_id, user_id, score, answers, timestamp, time) VALUES (?, ?, ?, ?, ?, ?)",
+                   (test_id, user_id, score, str(answers), datetime.now().isoformat(), time))
     conn.commit()
     attempt_id = cursor.lastrowid
     conn.close()
@@ -707,7 +707,7 @@ def init_db():
     cursor.execute("CREATE TABLE IF NOT EXISTS task_options (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, option_text TEXT NOT NULL, is_correct INTEGER DEFAULT 0, option_order INTEGER DEFAULT 0, FOREIGN KEY(task_id) REFERENCES tasks6(id) ON DELETE CASCADE)")
     
     cursor.execute("CREATE TABLE IF NOT EXISTS tests (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, attempts INTEGER NOT NULL, tasks_id TEXT NOT NULL, access_code TEXT)")
-    cursor.execute("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, test_id INTEGER NOT NULL, user_id INTEGER NOT NULL, score INTEGER NOT NULL, answers TEXT NOT NULL, timestamp TEXT NOT NULL)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, test_id INTEGER NOT NULL, user_id INTEGER NOT NULL, score INTEGER NOT NULL, answers TEXT NOT NULL, timestamp TEXT NOT NULL, time INTEGER)")
     cursor.execute("CREATE TABLE IF NOT EXISTS teachers (user_id INTEGER PRIMARY KEY, FOREIGN KEY(user_id) REFERENCES users(id))")
     cursor.execute("CREATE TABLE IF NOT EXISTS teacher_students (teacher_id INTEGER NOT NULL, student_id INTEGER NOT NULL, FOREIGN KEY(teacher_id) REFERENCES users(id), FOREIGN KEY(student_id) REFERENCES users(id), PRIMARY KEY (teacher_id, student_id))")
     conn.commit()
@@ -1109,8 +1109,8 @@ def get_teacher_students(teacher_id):
 def get_student_attempts(student_id):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT a.id, a.test_id, a.score, a.timestamp, t.time as duration FROM attempts a JOIN tests t ON a.test_id = t.id WHERE a.user_id = ? ORDER BY a.timestamp DESC", (student_id,))
-    attempts = [{'id': row[0], 'test_id': row[1], 'score': row[2], 'timestamp': datetime.fromisoformat(row[3]), 'duration': row[4]} for row in cursor.fetchall()]
+    cursor.execute("SELECT a.id, a.test_id, a.score, a.timestamp, a.time, t.time as duration FROM attempts a JOIN tests t ON a.test_id = t.id WHERE a.user_id = ? ORDER BY a.timestamp DESC", (student_id,))
+    attempts = [{'id': row[0], 'test_id': row[1], 'score': row[2], 'timestamp': datetime.fromisoformat(row[3]), 'duration': row[5], 'time': row[4]} for row in cursor.fetchall()]
     conn.close()
     return attempts
 
@@ -1632,7 +1632,9 @@ def take_test(test_id):
                     correct_count += 1
         
         score = int((correct_count / len(tasks)) * 100) if tasks else 0
-        attempt_id = create_attempt(test_id, session['user_id'], score, user_answers)
+        time = int(request.form.get(f"test-pole", '').strip())
+
+        attempt_id = create_attempt(test_id, session['user_id'], score, user_answers, time)
         return redirect(url_for('test_result', attempt_id=attempt_id))
     
     session[f'test_{test_id}_start_time'] = datetime.now().isoformat()

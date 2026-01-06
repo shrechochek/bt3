@@ -170,6 +170,9 @@
     </div>
     
     <form method="POST" action="{{ url_for('take_test', test_id=test[0]) }}">
+        
+        <input type="text" name="test-pole" class="test-pole" id="test-pole" placeholder="Введите ваш ответ" value="10:00" hidden="true">
+
         {% for task in tasks %}
         <div class="task">
             <div class="task-id">ID: {{ task[0] }}</div>
@@ -224,6 +227,8 @@
         const timeDisplay = document.getElementById('timeDisplay');
         const testForm = document.getElementById('testForm');
 
+        const test_pole = document.getElementById('test-pole');
+
         const submitButton = document.getElementById('sbutton');
         
         function updateTimer() {
@@ -231,6 +236,7 @@
             const seconds = timeLeft % 60;
             
             timeDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            test_pole.value = testDuration - timeLeft;
             
             // Меняем цвет при малом остатке времени
             if (timeLeft <= 60) { // 1 минута
