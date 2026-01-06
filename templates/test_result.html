@@ -144,7 +144,7 @@
         <div class="score-text">Ваш результат:</div>
         <div class="score">{{ attempt[3] }}%</div>
         <div class="score-text">
-            Правильных ответов: {{ attempt[3] * tasks|length // 100 }} из {{ tasks|length }}
+            Правильных ответов: {{ (attempt[3]+1) * tasks|length // 100 }} из {{ tasks|length }}
         </div>
     </div>
     
