@@ -14,7 +14,7 @@ git clone https://github.com/shrechochek/bt3
 2. установите библиотеки
 
 ```bash
-pip install requierments.txt
+pip install requirements.txt
 ```
 
 3. перейдите в папку с файлом `app.py`
