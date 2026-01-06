@@ -706,17 +706,17 @@ def init_db():
     # Create options table for multiple choice questions
     cursor.execute("CREATE TABLE IF NOT EXISTS task_options (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, option_text TEXT NOT NULL, is_correct INTEGER DEFAULT 0, option_order INTEGER DEFAULT 0, FOREIGN KEY(task_id) REFERENCES tasks6(id) ON DELETE CASCADE)")
     
-    cursor.execute("CREATE TABLE IF NOT EXISTS tests (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, attempts INTEGER NOT NULL, tasks_id TEXT NOT NULL, access_code TEXT)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS tests (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, attempts INTEGER NOT NULL, tasks_id TEXT NOT NULL, access_code TEXT, test_name TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, test_id INTEGER NOT NULL, user_id INTEGER NOT NULL, score INTEGER NOT NULL, answers TEXT NOT NULL, timestamp TEXT NOT NULL, time INTEGER)")
     cursor.execute("CREATE TABLE IF NOT EXISTS teachers (user_id INTEGER PRIMARY KEY, FOREIGN KEY(user_id) REFERENCES users(id))")
     cursor.execute("CREATE TABLE IF NOT EXISTS teacher_students (teacher_id INTEGER NOT NULL, student_id INTEGER NOT NULL, FOREIGN KEY(teacher_id) REFERENCES users(id), FOREIGN KEY(student_id) REFERENCES users(id), PRIMARY KEY (teacher_id, student_id))")
     conn.commit()
     conn.close()
 
-def create_test(time, attempts, tasks_id, access_code=None):
+def create_test(time, attempts, tasks_id, access_code=None, name=None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO tests (time, attempts, tasks_id, access_code) VALUES (?, ?, ?, ?)", (time, attempts, tasks_id, access_code))
+    cursor.execute("INSERT INTO tests (time, attempts, tasks_id, access_code, test_name) VALUES (?, ?, ?, ?, ?)", (time, attempts, tasks_id, access_code, name))
     conn.commit()
     test_id = cursor.lastrowid
     conn.close()
@@ -1699,11 +1699,12 @@ def create_test_page():
         attempts = request.form.get('attempts')
         tasks_id = request.form.get('tasks_id')
         access_code = request.form.get('access_code', None)
+        name = request.form.get('name', None)
         if not time or not attempts or not tasks_id:
             flash('Заполните поля', 'error')
         else:
             try:
-                create_test(int(time), int(attempts), tasks_id, access_code)
+                create_test(int(time), int(attempts), tasks_id, access_code, name)
                 return redirect(url_for('home'))
             except ValueError:
                 flash('Некорректные значения', 'error')
