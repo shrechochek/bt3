@@ -11,7 +11,7 @@
 git clone https://github.com/shrechochek/bt3
 ```
 
-2. установите библиотеки, если они не установлены
+2. установите библиотеки
 
 ```bash
 pip install flask
