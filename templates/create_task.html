@@ -72,10 +72,12 @@
             background-color: #dff0d8;
             color: #3c763d;
         }
+        .back-link{color:#3498db;text-decoration: none;}
     </style>
 </head>
 <body>
     <div class="container">
+        <a href="/" class="back-link">← На главную</a>
         <h1>Добавить новое задание</h1>
         
         {% with messages = get_flashed_messages(with_categories=true) %}

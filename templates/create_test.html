@@ -74,10 +74,12 @@
             color: #7f8c8d;
             margin-top: 5px;
         }
+        .back-link{color:#3498db;text-decoration: none;}
     </style>
 </head>
 <body>
     <div class="container">
+        <a href="/" class="back-link">← На главную</a>
         <h1>Создать новый тест</h1>
         
         {% with messages = get_flashed_messages(with_categories=true) %}
