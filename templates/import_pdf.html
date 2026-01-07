@@ -7,13 +7,14 @@
   <style>
     body{font-family:Arial,Helvetica,sans-serif;padding:20px;background:#f5f7fb}
     .box{max-width:800px;margin:24px auto;padding:24px;background:#fff;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.06)}
-    .drop{border:2px dashed #b6c2d3;border-radius:8px;padding:40px;text-align:center;color:#546a86;cursor:pointer}
+    .drop{border:2px dashed #b6c2d3;border-radius:8px;padding:80px;text-align:center;color:#546a86;cursor:pointer}
     .drop.dragover{background:#eef6ff;border-color:#2b8dfc}
     input[type=file]{display:none}
     button{margin-top:12px;padding:10px 18px;border:none;border-radius:6px;background:#3498db;color:#fff;cursor:pointer}
     .info{margin-top:15px;padding:10px;background:#e8f5e8;border:1px solid #4caf50;border-radius:4px;color:#2e7d32}
     .back-link{color:#3498db;text-decoration: none;}
     .header {display: flex;justify-content: space-between;align-items: center;margin-bottom: 20px;}
+    .hint{color:#666666;}
   </style>
 </head>
 <body>
@@ -22,15 +23,16 @@
       <h2>Импорт PDF с олимпиадными заданиями</h2>
       <a href="/" class="back-link">← На главную</a>
     </div>
-    <p>Автоматический разбор PDF файлов с олимпиадными заданиями по биологии. Задания будут добавлены в базу данных с вариантами ответов и изображениями.</p>
+    <p class="hint">Поддерживаются файлы всоша по биологии</p>
+    <!-- <p>Автоматический разбор PDF файлов с олимпиадными заданиями по биологии. Задания будут добавлены в базу данных с вариантами ответов и изображениями.</p> -->
 
-    <div class="info">
+    <!-- <div class="info">
       <strong>Поддерживаемые форматы:</strong><br>
       - Задания типа "Задание 1", "Задание 1.1"<br>
       - Варианты ответов: а), б), в), г)<br>
       - Изображения автоматически привязываются к заданиям<br>
       - Правильные ответы извлекаются из текста
-    </div>
+    </div> -->
 
     <div id="drop" class="drop">
       Перетащите файл PDF сюда или нажмите, чтобы выбрать
