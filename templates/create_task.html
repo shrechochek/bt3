@@ -73,6 +73,29 @@
             color: #3c763d;
         }
         .back-link{color:#3498db;text-decoration: none;}
+        .file-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: 10px;
+            /* background: linear-gradient(135deg, #6366f1, #8b5cf6); */
+            background-color: #8b5cf6;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+            border: 2px solid #5b2cc6;
+        }
+
+        .file-btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .file-btn:active {
+            transform: scale(0.97);
+        }
     </style>
 </head>
 <body>
@@ -156,7 +179,9 @@
             
             <div class="form-group">
                 <label for="image">Изображение (JPG/PNG):</label>
-                <input type="file" id="image" name="image" accept=".jpg,.jpeg,.png">
+                
+                <button class="file-btn">🏙 Upload image</button>
+                <input type="file" id="image" name="image" accept=".jpg,.jpeg,.png" hidden>
             </div>
 
             <div class="form-group">
@@ -168,6 +193,8 @@
         </form>
         
         <script>
+            document.querySelector('.file-btn').onclick = () => document.getElementById('image').click();;
+
             let optionCount = 2;
             
             function toggleTaskType() {
