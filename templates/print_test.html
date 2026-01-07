@@ -101,7 +101,7 @@
                   onerror="this.style.display='none'">
             {% endif %}
         {% endif %}
-        <div class="q-title">Вопрос {{ loop.index }}. {{ task[1] }}</div>
+        <div class="q-title">Вопрос {{ loop.index }}</div>
         <div class="q-desc">{{ task[2] }}</div>
 
         {% if task|length > 7 and task[7] == 'multiple_choice' %}
