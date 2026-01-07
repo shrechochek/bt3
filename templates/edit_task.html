@@ -14,10 +14,35 @@
     .btn{margin-top:12px;padding:10px 16px;border:none;border-radius:6px;background:#3498db;color:#fff;cursor:pointer}
     img.preview{max-width:200px;border:1px solid #ddd;padding:6px;border-radius:6px;margin-top:8px}
     .small{font-size:0.9em;color:#555}
+    .file-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: 10px;
+            /* background: linear-gradient(135deg, #6366f1, #8b5cf6); */
+            background-color: #8b5cf6;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+            border: 0px solid #8b5cf6;
+        }
+
+        .file-btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .file-btn:active {
+            transform: scale(0.97);
+        }
+        .back-link{color:#3498db;text-decoration: none;}
   </style>
 </head>
 <body>
   <div class="container">
+    <a href="/" class="back-link">← На главную</a>
     <h2>Редактировать задание #{{ task.id }}</h2>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -110,12 +135,16 @@
       {% endif %}
 
       <label for="image">Загрузить новое изображение (JPG/PNG)</label>
-      <input id="image" name="image" type="file" accept=".jpg,.jpeg,.png">
+      
+      <button class="file-btn">🏙 Загрузить изображение</button>
+      <input id="image" name="image" type="file" accept=".jpg,.jpeg,.png" hidden>
+      <button class="btn" type="submit" style="display: block;">Сохранить изменения</button>
 
-      <button class="btn" type="submit">Сохранить изменения</button>
     </form>
 
     <script>
+      document.querySelector('.file-btn').onclick = () => document.getElementById('image').click();;
+
       let optionCount = {% if task.task_type == 'multiple_choice' %}{{ task_options|length }}{% else %}2{% endif %};
       
       function toggleTaskType() {
@@ -165,8 +194,6 @@
         }
       }
     </script>
-
-    <p><a href="{{ url_for('home') }}">← Вернуться на главную</a></p>
   </div>
 </body>
 </html>
