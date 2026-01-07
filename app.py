@@ -1862,62 +1862,6 @@ def import_pdf():
 
     return render_template("import_pdf.html")
 
-
-@app.route("/upload-pdf", methods=["GET", "POST"])
-def upload_pdf():
-    if 'user_id' not in session:
-        return jsonify({'status': 'unauthenticated', 'message': 'login required'}) \
-            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' \
-            else redirect(url_for('login'))
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT 1 FROM teachers WHERE user_id = ?", (session['user_id'],))
-    if not cursor.fetchone():
-        conn.close()
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'forbidden', 'message': 'Только учителя'})
-        flash("Только учителя могут загружать PDF", "error")
-        return redirect(url_for('home'))
-    conn.close()
-
-    if request.method == "POST":
-        file = request.files.get('file')
-        if not file:
-            msg = "Файл не найден"
-            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'status': 'error', 'message': msg})
-            flash(msg, "error")
-            return redirect(request.url)
-
-        filename = file.filename
-        if not allowed_file(filename):
-            msg = "Только PDF"
-            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'status': 'error', 'message': msg})
-            flash(msg, "error")
-            return redirect(request.url)
-
-        tmp_dir = tempfile.mkdtemp()
-        pdf_path = os.path.join(tmp_dir, secure_filename(filename) or "uploaded.pdf")
-        file.save(pdf_path)
-
-        created = parse_pdf_and_store_tasks(pdf_path, DB_PATH, images_output_dir="images")
-
-        os.remove(pdf_path)
-        os.rmdir(tmp_dir)
-
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'status': 'ok', 'created': [
-                {'task_id': c['task_id'], 'task_num': c.get('number')} for c in created
-            ]})
-        flash(f"Создано {len(created)} заданий", "success")
-        return redirect(url_for('home'))
-
-    return render_template("upload_pdf.html")
-
-
-
 @app.route('/print-test/<int:test_id>')
 def print_test(test_id):
     if 'user_id' not in session:
