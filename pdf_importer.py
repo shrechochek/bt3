@@ -82,12 +82,14 @@ class PDFImporter:
                     tags = ""
                     source = os.path.basename(source_pdf)
 
+                    is_visible_to_students = 0
+
                     # Сохраняем задание в БД
                     cursor.execute(
                         """INSERT INTO tasks6
                            (title, description, anwser, difficulty, tags, source, task_type, is_visible_to_students)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (title, description, answer_text, difficulty, tags, source, task_type, 1)
+                        (title, description, answer_text, difficulty, tags, source, task_type, is_visible_to_students)
                     )
 
                     task_id = cursor.lastrowid
