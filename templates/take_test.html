@@ -222,6 +222,9 @@
     <script>
         // Устанавливаем время окончания теста
         const testDuration = {{ test[1] }} * 60; // в секундах
+        // if (sessionStorage.getItem('timeLeft') === null) {
+        //     sessionStorage.setItem('timeLeft', testDuration);
+        // }
         let timeLeft = testDuration;
         const timerElement = document.getElementById('testTimer');
         const timeDisplay = document.getElementById('timeDisplay');
@@ -232,6 +235,8 @@
         const submitButton = document.getElementById('sbutton');
         
         function updateTimer() {
+            // let timeLeft = sessionStorage.getItem('timeLeft');
+
             const minutes = Math.floor(timeLeft / 60);
             const seconds = timeLeft % 60;
             
@@ -253,6 +258,7 @@
             //     timeLeft--;
             // }
             timeLeft--;
+            // sessionStorage.setItem('timeLeft', timeLeft);
             setTimeout(updateTimer, 1000);
         }
         

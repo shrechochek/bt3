@@ -70,6 +70,12 @@
       border-radius:6px;
       font-size:14px;
     }
+    .task-image {
+            max-width: 100%;
+            height: auto;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
   </style>
 </head>
 <body onload="maybeAutoPrint()">
@@ -85,6 +91,16 @@
   <main>
     {% for task in tasks %}
       <div class="question">
+        <!-- <img src="/images/1_1.jpg" alt="Изображение к задаче 1" onerror="this.style.display='none'"> -->
+        {% if task[0] %}
+            {% set image_path = 'images/' ~ task[0] ~ '_1.jpg' %}
+            {% if image_path %}
+            <img src="{{ url_for('get_image', filename=task[0]~'_1.jpg') }}" 
+                  alt="Изображение к задаче {{ task[0] }}" 
+                  class="task-image"
+                  onerror="this.style.display='none'">
+            {% endif %}
+        {% endif %}
         <div class="q-title">Вопрос {{ loop.index }}. {{ task[1] }}</div>
         <div class="q-desc">{{ task[2] }}</div>
 
