@@ -1,5 +1,5 @@
 images/
-.db
-.DS_Store
+**/.db
+**/.DS_Store
 pdf_files/
 archive/
