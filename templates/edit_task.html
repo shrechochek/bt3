@@ -82,6 +82,14 @@
         .dropdown-menu div:hover {
           background: #f3f4f6;
         }
+        
+        .form-control {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
   </style>
 </head>
 <body>
@@ -99,37 +107,10 @@
 
     <form method="post" enctype="multipart/form-data">
     <label>Тип задания:</label>
-    <select id="task_type" name="task_type" hidden onchange="toggleTaskType()">
-      <option value="text_answer"
-        {% if task.task_type != 'multiple_choice' %}selected{% endif %}>
-        Текстовый ответ
-      </option>
-      <option value="multiple_choice"
-        {% if task.task_type == 'multiple_choice' %}selected{% endif %}>
-        Выбор из вариантов
-      </option>
+    <select id="task_type" name="task_type" class="form-control" onchange="toggleTaskType()" required>
+        <option value="text_answer">Текстовый ответ</option>
+        <option value="multiple_choice">Выбор из вариантов</option>
     </select>
-    <div class="dropdown">
-      <button type="button" class="dropdown-btn" onclick="toggleDropdown()">
-        <span id="task-type-label">
-          {% if task.task_type == 'multiple_choice' %}
-            Выбор из вариантов
-          {% else %}
-            Текстовый ответ
-          {% endif %}
-        </span>
-        ⌄
-      </button>
-
-      <div class="dropdown-menu" id="taskTypeMenu">
-        <div onclick="selectTaskType('text_answer', 'Текстовый ответ')">
-          📝 Текстовый ответ
-        </div>
-        <div onclick="selectTaskType('multiple_choice', 'Выбор из вариантов')">
-          ✅ Выбор из вариантов
-        </div>
-      </div>
-    </div>
 
       <label for="title">Условие (title)</label>
       <textarea id="title" name="title" required>{{ task.title or '' }}</textarea>
@@ -243,23 +224,23 @@
       });
       
       function toggleTaskType() {
-        const taskType = document.getElementById('task_type').value;
-        const textFields = document.getElementById('text-answer-fields');
-        const multipleChoiceFields = document.getElementById('multiple-choice-fields');
-        const descriptionGroup = document.getElementById('description-group');
-        
-        if (taskType === 'multiple_choice') {
-          textFields.style.display = 'none';
-          multipleChoiceFields.style.display = 'block';
-          descriptionGroup.style.display = 'none';
-          document.getElementById('answer').required = false;
-        } else {
-          textFields.style.display = 'block';
-          multipleChoiceFields.style.display = 'none';
-          descriptionGroup.style.display = 'block';
-          document.getElementById('answer').required = true;
-        }
-      }
+                const taskType = document.getElementById('task_type').value;
+                const textFields = document.getElementById('text-answer-fields');
+                const multipleChoiceFields = document.getElementById('multiple-choice-fields');
+                const descriptionGroup = document.getElementById('description-group');
+                
+                if (taskType === 'multiple_choice') {
+                    textFields.style.display = 'none';
+                    multipleChoiceFields.style.display = 'block';
+                    descriptionGroup.style.display = 'none';
+                    document.getElementById('answer').required = false;
+                } else {
+                    textFields.style.display = 'block';
+                    multipleChoiceFields.style.display = 'none';
+                    descriptionGroup.style.display = 'block';
+                    document.getElementById('answer').required = true;
+                }
+            }
       
       function addOption() {
         const container = document.getElementById('options-container');
