@@ -4,3 +4,6 @@ images/
 pdf_files/
 archive/
 venv/
+*.db
+__pycache__/
+*.pyc
