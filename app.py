@@ -1817,6 +1817,11 @@ def import_pdf():
 
     if request.method == "POST":
         file = request.files.get('file')
+        is_visible_to_students = request.form.get('is_visible_to_students', 'test').strip()
+
+        print("=========================")
+        print("IS VISIBLE TO STUDENTS: " + str(is_visible_to_students))
+        print("=========================")
         if not file:
             msg = "Файл не найден"
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':

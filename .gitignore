@@ -3,3 +3,4 @@ images/
 **/.DS_Store
 pdf_files/
 archive/
+venv/

@@ -24,8 +24,8 @@
       <a href="/" class="back-link">← На главную</a>
     </div>
     <p class="hint">Поддерживаются файлы всоша по биологии</p>
-    <label for="is_visible_to_students">Видно ли задание ученикам:</label>
-    <input type="checkbox" id="is_visible_to_students" name="is_visible_to_students">
+    <!-- <label for="is_visible_to_students">Видно ли задание ученикам:</label>
+    <input type="checkbox" id="is_visible_to_students" name="is_visible_to_students" style="margin-bottom: 20px"> -->
     <!-- <p>Автоматический разбор PDF файлов с олимпиадными заданиями по биологии. Задания будут добавлены в базу данных с вариантами ответов и изображениями.</p> -->
 
     <!-- <div class="info">
@@ -40,9 +40,12 @@
       Перетащите файл PDF сюда или нажмите, чтобы выбрать
     </div>
 
-    <form id="uploadForm" method="post" enctype="multipart/form-data" style="display:none;">
+    <!-- <form id="uploadForm" method="post" enctype="multipart/form-data" style="display:none;"> -->
+    <form id="uploadForm" method="post" enctype="multipart/form-data">
+      <label for="is_visible_to_students">Видно ли задание ученикам:</label>
+      <input type="checkbox" id="is_visible_to_students" name="is_visible_to_students" style="margin-bottom: 20px">
       <input id="fileInput" type="file" name="file" accept="application/pdf" />
-      <button id="submitBtn" type="submit">Импортировать задания</button>
+      <button id="submitBtn" type="submit" style="display:block">Импортировать задания</button>
     </form>
 
     <div id="status"></div>
