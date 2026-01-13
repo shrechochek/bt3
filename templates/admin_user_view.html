@@ -186,9 +186,10 @@
             <thead>
                 <tr>
                     <th>Дата и время</th>
+                    <th>Время выполнения</th>
                     <th>ID теста</th>
                     <th>Результат</th>
-                    <th>Длительность</th>
+                    <!-- <th>Длительность</th> -->
                     <th>Детали</th>
                 </tr>
             </thead>
@@ -196,6 +197,7 @@
                 {% for attempt in attempts %}
                 <tr>
                     <td>{{ attempt.timestamp }}</td>
+                    <td>{{ attempt.time // 60}} мин {{ attempt.time % 60}} сек</td>
                     <td>{{ attempt.test_id }}</td>
                     <td class="result-cell 
                         {% if attempt.score >= 80 %}result-good
@@ -204,7 +206,7 @@
                         {% endif %}">
                         {{ attempt.score }}%
                     </td>
-                    <td>{{ attempt.time }} мин</td>
+                    <!-- <td>{{ attempt.time }} мин</td> -->
                     <td>
                         <a href="{{ url_for('test_result', attempt_id=attempt.id) }}">
                             Посмотреть

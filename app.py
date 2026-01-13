@@ -1242,7 +1242,7 @@ def admin_view_user(user_id):
         cursor.execute("SELECT u.id, u.username, u.name, u.surname FROM teacher_students ts JOIN users u ON ts.student_id = u.id WHERE ts.teacher_id = ?", (user_id,))
         students = [{'id': row[0], 'username': row[1], 'name': row[2], 'surname': row[3]} for row in cursor.fetchall()]
     cursor.execute("SELECT a.id, a.test_id, a.score, a.timestamp, t.time FROM attempts a JOIN tests t ON a.test_id = t.id WHERE a.user_id = ? ORDER BY a.timestamp DESC", (user_id,))
-    attempts = [{'id': row[0], 'test_id': row[1], 'score': row[2], 'timestamp': row[3], 'time': row[4]} for row in cursor.fetchall()]
+    attempts = get_student_attempts(user_id)
     conn.close()
     return render_template('admin_user_view.html', user_info=user_info, students=students, attempts=attempts, current_user=session.get('user_info'))
 
