@@ -59,6 +59,7 @@
             font-size: 14px;
             border: none;
             cursor: pointer;
+            /* margin-left: 10px; */
         }
         .btn-view {
             background-color: #3498db;
@@ -127,10 +128,10 @@
                         {% endif %}
                     </td>
                     <td>
-                        <a href="{{ url_for('admin_view_user', user_id=user.id) }}" class="btn btn-view">
+                        <a href="{{ url_for('admin_view_user', user_id=user.id) }}" class="btn btn-view" style="margin-right:10px;"> 
                             Просмотр
                         </a>
-                        <a href="{{ url_for('admin_toggle_teacher', user_id=user.id) }}" 
+                        <a href="{{ url_for('admin_toggle_teacher', user_id=user.id) }}" style="margin-right:10px;"
                         class="btn {% if user.is_teacher %}btn-not-teacher{% else %}btn-teacher{% endif %}">
                             {% if user.is_teacher %}Убрать учителя{% else %}Сделать учителем{% endif %}
                         </a>
