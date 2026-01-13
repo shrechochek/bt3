@@ -91,6 +91,16 @@
             border-radius: 5px;
             font-size: 16px;
         }
+        .form-group-checkbox {
+            margin-bottom: 20px;
+        }
+        .form-group-checkbox label {
+            display: contents !important; 
+            margin-bottom: 8px;
+            font-weight: bold;
+            /* color: #2c3e50; */
+            /* color: rgba(0,0,0,0.06); */
+        }
   </style>
 </head>
 <body>
@@ -107,11 +117,11 @@
     {% endwith %}
 
     <form method="post" enctype="multipart/form-data">
-    <label>Тип задания:</label>
-    <select id="task_type" name="task_type" class="form-control" onchange="toggleTaskType()" required>
-        <option value="text_answer">Текстовый ответ</option>
-        <option value="multiple_choice">Выбор из вариантов</option>
-    </select>
+      <label>Тип задания:</label>
+      <select id="task_type" name="task_type" class="form-control" onchange="toggleTaskType()" required>
+          <option value="text_answer">Текстовый ответ</option>
+          <option value="multiple_choice">Выбор из вариантов</option>
+      </select>
 
       <label for="title">Условие (title)</label>
       <textarea id="title" name="title" required>{{ task.title or '' }}</textarea>
@@ -170,8 +180,10 @@
       <label for="source">Источник</label>
       <input id="source" name="source" type="text" value="{{ task.source or '' }}">
       
-      <label for="is_visible_to_students">Видно ли задание ученикам:</label>
-      <input type="checkbox" id="is_visible_to_students" name="is_visible_to_students" value="1" {% if task.is_visible_to_students %}checked{% endif %}>
+      <div class="form-group-checkbox">
+        <label for="is_visible_to_students">Видно ли задание ученикам:</label>
+        <input type="checkbox" id="is_visible_to_students" name="is_visible_to_students" value="1" {% if task.is_visible_to_students %}checked{% endif %}>
+      </div>
 
       <label>Текущие изображения</label>
       {% if task_images %}
