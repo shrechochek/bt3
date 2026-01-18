@@ -83,11 +83,11 @@
         .option-label:hover {
             background-color: #f8f9fa;
         }
-        .option-label:has(.option-radio:checked) {
+        .option-label:has(.option-checkbox:checked) {
             background-color: #e3f2fd;
             border-color: #2196f3;
         }
-        .option-radio {
+        .option-checkbox {
             margin-right: 10px;
             transform: scale(1.2);
         }
@@ -195,10 +195,10 @@
                 <div class="options-container">
                     {% for option in task_options.get(task[0], []) %}
                     <label class="option-label">
-                        <input type="radio" 
-                               name="answer_{{ task[0] }}" 
+                        <input type="checkbox" 
+                               name="answer_{{ task[0] }}[]" 
                                value="{{ option[1] }}"
-                               class="option-radio">
+                               class="option-checkbox">
                         <span class="option-text">{{ option[1] }}</span>
                     </label>
                     {% endfor %}

@@ -146,7 +146,7 @@
               <div class="option-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
                 <input type="text" name="option_text[]" class="form-control" value="{{ option[1] }}" style="flex: 1;">
                 <label style="display: flex; align-items: center;">
-                  <input type="radio" name="correct_option" value="{{ loop.index0 }}" {% if option[2] %}checked{% endif %} style="margin-right: 5px;">Правильный
+                  <input type="checkbox" name="correct_option[]" value="{{ loop.index0 }}" {% if option[2] %}checked{% endif %} style="margin-right: 5px;">Правильный
                 </label>
                 <button type="button" onclick="removeOption(this)" class="btn" style="background-color: #e74c3c; padding: 5px 10px;">Удалить</button>
               </div>
@@ -155,14 +155,14 @@
             <div class="option-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
               <input type="text" name="option_text[]" class="form-control" placeholder="Вариант 1" style="flex: 1;">
               <label style="display: flex; align-items: center;">
-                <input type="radio" name="correct_option" value="0" style="margin-right: 5px;">Правильный
+                <input type="checkbox" name="correct_option[]" value="0" style="margin-right: 5px;">Правильный
               </label>
               <button type="button" onclick="removeOption(this)" class="btn" style="background-color: #e74c3c; padding: 5px 10px;">Удалить</button>
             </div>
             <div class="option-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
               <input type="text" name="option_text[]" class="form-control" placeholder="Вариант 2" style="flex: 1;">
               <label style="display: flex; align-items: center;">
-                <input type="radio" name="correct_option" value="1" style="margin-right: 5px;">Правильный
+                <input type="checkbox" name="correct_option[]" value="1" style="margin-right: 5px;">Правильный
               </label>
               <button type="button" onclick="removeOption(this)" class="btn" style="background-color: #e74c3c; padding: 5px 10px;">Удалить</button>
             </div>
@@ -268,7 +268,7 @@
         newOption.innerHTML = `
           <input type="text" name="option_text[]" class="form-control" placeholder="Вариант ${optionCount + 1}" style="flex: 1;">
           <label style="display: flex; align-items: center;">
-            <input type="radio" name="correct_option" value="${optionCount}" style="margin-right: 5px;">Правильный
+            <input type="checkbox" name="correct_option[]" value="${optionCount}" style="margin-right: 5px;">Правильный
           </label>
           <button type="button" onclick="removeOption(this)" class="btn" style="background-color: #e74c3c; padding: 5px 10px;">Удалить</button>
         `;
@@ -281,9 +281,9 @@
         if (container.children.length > 1) {
           button.parentElement.remove();
           // Renumber remaining options
-          const options = container.querySelectorAll('input[type="radio"]');
-          options.forEach((radio, index) => {
-            radio.value = index;
+          const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+          checkboxes.forEach((checkbox, index) => {
+            checkbox.value = index;
           });
         }
       }

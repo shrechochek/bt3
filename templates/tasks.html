@@ -276,7 +276,11 @@
 
                         <div id="correct-{{ task.id }}" class="task-answer" style="display:none;">
                             {% if task.correct_option %}
-                                Правильный вариант: <strong>{{ task.correct_option }}</strong>
+                                {% if task.options|selectattr('is_correct')|list|length > 1 %}
+                                    Правильные варианты: <strong>{{ task.correct_option }}</strong>
+                                {% else %}
+                                    Правильный вариант: <strong>{{ task.correct_option }}</strong>
+                                {% endif %}
                             {% else %}
                                 Правильный вариант не задан.
                             {% endif %}

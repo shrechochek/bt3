@@ -1410,7 +1410,7 @@ def create_task():
         # Handle multiple choice options
         if task_type == 'multiple_choice':
             option_texts = request.form.getlist('option_text[]')
-            correct_option = request.form.get('correct_option')
+            correct_options = request.form.getlist('correct_option[]')
             
             if not option_texts or len(option_texts) < 2:
                 flash('Для задания с выбором нужно минимум 2 варианта', 'error')
@@ -1418,18 +1418,21 @@ def create_task():
                 conn.close()
                 return render_template('create_task.html', user=session.get('user_info'))
             
-            if not correct_option:
-                flash('Выберите правильный вариант', 'error')
+            if not correct_options:
+                flash('Выберите хотя бы один правильный вариант', 'error')
                 conn.rollback()
                 conn.close()
                 return render_template('create_task.html', user=session.get('user_info'))
             
+            # Convert correct_options to integers and validate
             try:
-                correct_index = int(correct_option)
-                if correct_index < 0 or correct_index >= len(option_texts):
-                    raise ValueError
+                correct_indices = [int(idx) for idx in correct_options]
+                # Validate indices
+                for idx in correct_indices:
+                    if idx < 0 or idx >= len(option_texts):
+                        raise ValueError
             except ValueError:
-                flash('Неверный выбор правильного варианта', 'error')
+                flash('Неверный выбор правильных вариантов', 'error')
                 conn.rollback()
                 conn.close()
                 return render_template('create_task.html', user=session.get('user_info'))
@@ -1440,7 +1443,7 @@ def create_task():
                 if option_text.strip():
                     options_data.append({
                         'text': option_text.strip(),
-                        'is_correct': i == correct_index
+                        'is_correct': i in correct_indices
                     })
             
             if len(options_data) < 2:
@@ -1612,22 +1615,26 @@ def take_test(test_id):
         user_answers = {}
         correct_count = 0
         for task in tasks:
-            user_answer = request.form.get(f"answer_{task[0]}", '').strip()
-            user_answers[task[0]] = user_answer
-            
             # Check answer based on task type
             if len(task) > 7 and task[7] == 'multiple_choice':
-                # For multiple choice, check if the selected option is correct
+                # For multiple choice, get list of selected options
+                user_selected = request.form.getlist(f"answer_{task[0]}[]")
+                user_answers[task[0]] = user_selected  # Store as list
+                
+                # Get correct options
                 options = get_task_options(task[0])
-                is_correct = False
-                for option in options:
-                    if option[1] == user_answer and option[2]:  # option[1] is text, option[2] is is_correct
-                        is_correct = True
-                        break
-                if is_correct:
+                correct_options = [option[1] for option in options if option[2]]  # option[1] is text, option[2] is is_correct
+                
+                # Check if user selected exactly the correct options (order doesn't matter)
+                user_selected_set = set(user_selected)
+                correct_options_set = set(correct_options)
+                
+                if user_selected_set == correct_options_set and len(user_selected_set) > 0:
                     correct_count += 1
             else:
                 # For text answer, compare with stored answer
+                user_answer = request.form.get(f"answer_{task[0]}", '').strip()
+                user_answers[task[0]] = user_answer
                 if user_answer.lower() == (task[3] or '').lower():
                     correct_count += 1
         
@@ -1681,7 +1688,35 @@ def test_result(attempt_id):
             user_answers = {}
     except Exception:
         user_answers = {}
-    return render_template('test_result.html', test=test, attempt=attempt, tasks=tasks, task_options=task_options, user_answers=user_answers, get_difficulty_color=get_difficulty_color, user=session.get('user_info'))
+    
+    # Calculate correctness for each task
+    task_correctness = {}
+    for task in tasks:
+        task_id = task[0]
+        if len(task) > 7 and task[7] == 'multiple_choice':
+            # Get user selected answers (may be list or single string)
+            user_selected = user_answers.get(task_id, [])
+            if isinstance(user_selected, str):
+                user_selected = [user_selected]
+            if not isinstance(user_selected, list):
+                user_selected = []
+            
+            # Get correct options
+            options = task_options.get(task_id, [])
+            correct_options = [opt[1] for opt in options if opt[2]]  # opt[1] is text, opt[2] is is_correct
+            
+            # Check if sets match
+            user_set = set(user_selected)
+            correct_set = set(correct_options)
+            task_correctness[task_id] = (user_set == correct_set) and len(user_set) > 0
+        else:
+            user_answer = user_answers.get(task_id, '')
+            if isinstance(user_answer, list):
+                user_answer = user_answer[0] if user_answer else ''
+            correct_answer = task[3] or ''
+            task_correctness[task_id] = user_answer.lower().strip() == correct_answer.lower().strip()
+    
+    return render_template('test_result.html', test=test, attempt=attempt, tasks=tasks, task_options=task_options, user_answers=user_answers, task_correctness=task_correctness, get_difficulty_color=get_difficulty_color, user=session.get('user_info'))
 
 @app.route('/create-test', methods=['GET', 'POST'])
 def create_test_page():
@@ -1949,7 +1984,7 @@ def search():
 
         # Варианты для multiple_choice
         options = []
-        correct_option = None  # 1-based index
+        correct_option = None  # Список 1-based индексов или строка для отображения
         if task_type == 'multiple_choice':
             raw_opts = get_task_options(task_id)  # ожидается [(id, option_text, is_correct, option_order), ...]
             # Преобразуем и отсортируем по option_order (если есть)
@@ -1958,11 +1993,17 @@ def search():
                 for o in raw_opts
             ]
             options.sort(key=lambda x: x.get('order', 0))
-            # найдем 1-based индекс правильного варианта (первого помеченного)
+            # Найдем все 1-based индексы правильных вариантов
+            correct_indices = []
             for idx, opt in enumerate(options, start=1):
                 if opt.get('is_correct'):
-                    correct_option = idx
-                    break
+                    correct_indices.append(idx)
+            # Формируем строку для отображения
+            if correct_indices:
+                if len(correct_indices) == 1:
+                    correct_option = str(correct_indices[0])
+                else:
+                    correct_option = ", ".join(map(str, correct_indices))
 
         tasks.append({
             'id': task_id,
@@ -2054,22 +2095,34 @@ def edit_task(task_id):
         # Обработка вариантов для multiple_choice
         if task_type == 'multiple_choice':
             option_texts = request.form.getlist('option_text[]')
-            correct_option = request.form.get('correct_option')
+            correct_options = request.form.getlist('correct_option[]')
             if not option_texts:
                 flash("Добавьте варианты ответов", "error")
                 conn.close()
                 return render_template('edit_task.html', task=task, task_images=current_images, task_options=task_options)
+            if not correct_options:
+                flash("Выберите хотя бы один правильный вариант", "error")
+                conn.close()
+                return render_template('edit_task.html', task=task, task_images=current_images, task_options=task_options)
+            
+            # Convert correct_options to integers and validate
             try:
-                correct_index = int(correct_option) if correct_option is not None else None
-            except Exception:
-                correct_index = None
+                correct_indices = [int(idx) for idx in correct_options]
+                # Validate indices
+                for idx in correct_indices:
+                    if idx < 0 or idx >= len(option_texts):
+                        raise ValueError
+            except (ValueError, Exception):
+                flash("Неверный выбор правильных вариантов", "error")
+                conn.close()
+                return render_template('edit_task.html', task=task, task_images=current_images, task_options=task_options)
 
             options_data = []
             for i, ot in enumerate(option_texts):
                 if ot.strip():
                     options_data.append({
                         'text': ot.strip(),
-                        'is_correct': bool(correct_index == i),
+                        'is_correct': i in correct_indices,
                         'order': i
                     })
             # Заменим опции в БД (реализовано в helper)

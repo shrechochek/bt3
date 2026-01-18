@@ -157,18 +157,7 @@
     <h2>Детализация ответов:</h2>
     
     {% for task in tasks %}
-    {% set is_correct = False %}
-    {% if task|length > 7 and task[7] == 'multiple_choice' %}
-        {% for option in task_options.get(task[0], []) %}
-            {% if option[1] == user_answers.get(task[0], '') and option[2] %}
-                {% set is_correct = True %}
-            {% endif %}
-        {% endfor %}
-    {% else %}
-        {% if user_answers.get(task[0], '')|lower == (task[3] or '')|lower %}
-            {% set is_correct = True %}
-        {% endif %}
-    {% endif %}
+    {% set is_correct = task_correctness.get(task[0], False) %}
     
     <div class="task {% if is_correct %}correct{% else %}incorrect{% endif %}">
         <div class="task-id">ID: {{ task[0] }}</div>
@@ -189,17 +178,26 @@
         {% if task|length > 7 and task[7] == 'multiple_choice' %}
             <div class="answer-section">
                 <div><strong>Варианты ответов:</strong></div>
+                {% set user_selected = user_answers.get(task[0], []) %}
+                {% if user_selected is string %}
+                    {% set user_selected = [user_selected] %}
+                {% endif %}
                 {% for option in task_options.get(task[0], []) %}
-                <div class="option-result {% if option[1] == user_answers.get(task[0], '') %}user-selected{% endif %} {% if option[2] %}correct-option{% endif %}">
+                <div class="option-result {% if option[1] in user_selected %}user-selected{% endif %} {% if option[2] %}correct-option{% endif %}">
                     {% if option[2] %}✓{% endif %} {{ option[1] }}
-                    {% if option[1] == user_answers.get(task[0], '') %} (Ваш выбор){% endif %}
+                    {% if option[1] in user_selected %} (Ваш выбор){% endif %}
                 </div>
                 {% endfor %}
             </div>
         {% else %}
             <div class="answer-section">
                 <div><strong>Ваш ответ:</strong></div>
-                <div class="user-answer">{{ user_answers.get(task[0], '') }}</div>
+                {% set user_answer = user_answers.get(task[0], '') %}
+                {% if user_answer is iterable and user_answer is not string %}
+                    <div class="user-answer">{{ user_answer|join(', ') }}</div>
+                {% else %}
+                    <div class="user-answer">{{ user_answer }}</div>
+                {% endif %}
                 
                 <div><strong>Правильный ответ:</strong></div>
                 <div class="correct-answer">{{ task[3] }}</div>

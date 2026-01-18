@@ -156,14 +156,14 @@
                         <div class="option-row">
                             <input type="text" name="option_text[]" class="form-control" placeholder="Вариант 1" style="display: inline-block; width: 70%; margin-right: 10px;">
                             <label style="display: inline-block; margin-right: 10px;">
-                                <input type="radio" name="correct_option" value="0" style="margin-right: 5px;">Правильный
+                                <input type="checkbox" name="correct_option[]" value="0" style="margin-right: 5px;">Правильный
                             </label>
                             <button type="button" onclick="removeOption(this)" class="btn" style="width: auto; padding: 5px 10px; background-color: #e74c3c;">Удалить</button>
                         </div>
                         <div class="option-row">
                             <input type="text" name="option_text[]" class="form-control" placeholder="Вариант 2" style="display: inline-block; width: 70%; margin-right: 10px;">
                             <label style="display: inline-block; margin-right: 10px;">
-                                <input type="radio" name="correct_option" value="1" style="margin-right: 5px;">Правильный
+                                <input type="checkbox" name="correct_option[]" value="1" style="margin-right: 5px;">Правильный
                             </label>
                             <button type="button" onclick="removeOption(this)" class="btn" style="width: auto; padding: 5px 10px; background-color: #e74c3c;">Удалить</button>
                         </div>
@@ -238,7 +238,7 @@
                 newOption.innerHTML = `
                     <input type="text" name="option_text[]" class="form-control" placeholder="Вариант ${optionCount + 1}" style="display: inline-block; width: 70%; margin-right: 10px;">
                     <label style="display: inline-block; margin-right: 10px;">
-                        <input type="radio" name="correct_option" value="${optionCount}" style="margin-right: 5px;">Правильный
+                        <input type="checkbox" name="correct_option[]" value="${optionCount}" style="margin-right: 5px;">Правильный
                     </label>
                     <button type="button" onclick="removeOption(this)" class="btn" style="width: auto; padding: 5px 10px; background-color: #e74c3c;">Удалить</button>
                 `;
@@ -251,9 +251,9 @@
                 if (container.children.length > 1) {
                     button.parentElement.remove();
                     // Renumber remaining options
-                    const options = container.querySelectorAll('input[type="radio"]');
-                    options.forEach((radio, index) => {
-                        radio.value = index;
+                    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+                    checkboxes.forEach((checkbox, index) => {
+                        checkbox.value = index;
                     });
                 }
             }
