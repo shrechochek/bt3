@@ -126,7 +126,7 @@
                 <label for="task_type">Тип задания:</label>
                 <select id="task_type" name="task_type" class="form-control" onchange="toggleTaskType()" required>
                     <option value="text_answer">Текстовый ответ</option>
-                    <option value="multiple_choice">Выбор из вариантов</option>
+                    <option value="multiple_choice" selected>Выбор из вариантов</option>
                 </select>
             </div>
             
@@ -206,6 +206,11 @@
             document.querySelector('.file-btn').onclick = () => document.getElementById('image').click();;
 
             let optionCount = 2;
+            
+            // Вызов при загрузке страницы для правильного отображения полей
+            window.addEventListener('DOMContentLoaded', function() {
+                toggleTaskType();
+            });
             
             function toggleTaskType() {
                 const taskType = document.getElementById('task_type').value;

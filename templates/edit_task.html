@@ -119,8 +119,8 @@
     <form method="post" enctype="multipart/form-data">
       <label>Тип задания:</label>
       <select id="task_type" name="task_type" class="form-control" onchange="toggleTaskType()" required>
-          <option value="text_answer">Текстовый ответ</option>
-          <option value="multiple_choice">Выбор из вариантов</option>
+          <option value="text_answer" {% if task.task_type != 'multiple_choice' %}selected{% endif %}>Текстовый ответ</option>
+          <option value="multiple_choice" {% if task.task_type == 'multiple_choice' %}selected{% endif %}>Выбор из вариантов</option>
       </select>
 
       <label for="title">Условие (title)</label>
@@ -234,6 +234,11 @@
         if (!dropdown.contains(e.target)) {
           document.getElementById('taskTypeMenu').style.display = 'none';
         }
+      });
+      
+      // Вызов при загрузке страницы для правильного отображения полей
+      window.addEventListener('DOMContentLoaded', function() {
+        toggleTaskType();
       });
       
       function toggleTaskType() {
